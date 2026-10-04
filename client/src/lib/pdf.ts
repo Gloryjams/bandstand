@@ -1,3 +1,5 @@
+import "./promise-with-resolvers.mjs";
+// Keep both legacy builds for the iOS 17/18 devices used at rehearsals.
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 
@@ -20,7 +22,12 @@ export function loadDoc(contentHash: string, blob: Blob): Promise<Doc> {
   if (!p) {
     p = blob
       .arrayBuffer()
-      .then((buf) => pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise);
+      .then((buf) => {
+        // v6 removed this option from its types along with eval-based code generation.
+        // Keep the explicit false flag as defence in depth for older builds.
+        const options = { data: new Uint8Array(buf), isEvalSupported: false };
+        return pdfjsLib.getDocument(options).promise;
+      });
     docCache.set(contentHash, p);
   }
   return p;
@@ -68,7 +75,7 @@ export async function renderPage(
   canvas.style.width = `${Math.floor(cssW)}px`;
   canvas.style.height = `${Math.floor(cssH)}px`;
 
-  const task = page.render({ canvasContext: ctx, viewport, canvas });
+  const task = page.render({ canvas, viewport });
   inflight.set(canvas, task);
   try {
     await task.promise;
@@ -105,7 +112,7 @@ export async function analyzeContentBBox(
     // white underlay: vector PDFs can have transparent backgrounds
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, c.width, c.height);
-    await page.render({ canvasContext: ctx, viewport: vp, canvas: c }).promise;
+    await page.render({ canvas: c, viewport: vp }).promise;
     const data = ctx.getImageData(0, 0, c.width, c.height);
     const box = contentBBox(data.data, c.width, c.height);
     // Cache only a COMPLETED analysis (null here legitimately means blank/tight

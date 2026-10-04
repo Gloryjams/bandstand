@@ -15,6 +15,7 @@ def _rooms_switched_on(monkeypatch):
     monkeypatch.setenv("BANDSTAND_ROOMS", "1")
     monkeypatch.delenv("BANDSTAND_ROOMS_MAX_OPEN", raising=False)
     monkeypatch.delenv("BANDSTAND_ROOMS_PROPOSALS_PER_MINUTE", raising=False)
+    monkeypatch.delenv("BANDSTAND_ROOMS_PARTICIPATION_PER_MINUTE", raising=False)
     monkeypatch.delenv("BANDSTAND_ROOMS_MAX_GUESTS", raising=False)
 
 
@@ -342,6 +343,30 @@ def test_a_closed_room_does_not_count_against_the_cap(tmp_data_dir):
     assert _create(client, key, "Thu")["state"] == "open"
 
 
+def test_an_expired_room_does_not_count_against_the_cap(tmp_data_dir, monkeypatch):
+    client, cfg, key = _setup(tmp_data_dir)
+    first = _create(client, key)
+    now = rooms._now()
+    monkeypatch.setattr(rooms, "_now", lambda: now)
+    conn = db.connect(cfg.db_path)
+    conn.execute(
+        "UPDATE rehearsal_rooms SET join_expires_at = ? WHERE id = ?", (now, first["id"])
+    )
+    conn.close()
+
+    assert client.get(
+        "/api/rooms/active", headers={"X-Bandstand-Key": key}
+    ).json() is None
+    assert client.get(
+        f"/room-api/{first['id']}", headers={"X-Bandstand-Room": first["join_token"]}
+    ).status_code == 410
+    second = _create(client, key, "Next rehearsal")
+    assert second["state"] == "open"
+    assert client.get(
+        "/api/rooms/active", headers={"X-Bandstand-Key": key}
+    ).json()["room"]["id"] == second["id"]
+
+
 @pytest.mark.parametrize("bad", ["0", "-1", "two"])
 def test_an_unusable_open_room_cap_is_refused(tmp_data_dir, monkeypatch, bad):
     # Zero would be a second way of switching rooms off. There is one switch.
@@ -414,6 +439,238 @@ def test_a_negative_per_minute_cap_is_refused(tmp_data_dir, monkeypatch):
     monkeypatch.setenv("BANDSTAND_ROOMS_PROPOSALS_PER_MINUTE", "-3")
     with pytest.raises(config.ConfigProblem, match="BANDSTAND_ROOMS_PROPOSALS_PER_MINUTE"):
         config.load()
+
+
+# -------------------------------------------------------------- guest write caps
+
+
+def test_music_key_is_limited_to_16_characters(tmp_data_dir):
+    client, _, key = _setup(tmp_data_dir)
+    room = _create(client, key)
+    person = _join(client, room, "Maya", "Vocals")
+    for music_key, expected in [("C" * 16, 200), ("C" * 17, 422), ("", 200), (None, 200)]:
+        response = client.post(
+            f"/room-api/{room['id']}/proposals",
+            json={"title": "A song", "music_key": music_key},
+            headers=_guest_headers(room, person),
+        )
+        assert response.status_code == expected
+        if expected == 422:
+            assert response.json()["detail"] == "music key is too long"
+    state = client.get(
+        f"/room-api/{room['id']}", headers={"X-Bandstand-Room": room["join_token"]}
+    ).json()
+    assert [p["music_key"] for p in state["proposals"]] == ["C" * 16, None, None]
+
+
+def test_participant_id_is_limited_to_64_characters(tmp_data_dir):
+    client, _, key = _setup(tmp_data_dir)
+    room = _create(client, key)
+    assert _try_join(
+        client, room, "Maya", "Vocals", participant_id="Ab_9-" + "x" * 59
+    ).status_code == 200
+    assert _try_join(
+        client, room, "Sam", "Guitar", participant_id="x" * 65
+    ).status_code == 422
+
+
+@pytest.mark.parametrize("participant_id", ["", "guest name", "guest.name", "é", "guest/1", "guest\n"])
+def test_participant_id_accepts_only_letters_numbers_underscores_and_hyphens(tmp_data_dir, participant_id):
+    client, _, key = _setup(tmp_data_dir)
+    room = _create(client, key)
+    response = client.post(
+        f"/room-api/{room['id']}/join",
+        json={"participant_id": participant_id, "participant_token": "t" * 32,
+              "display_name": "Maya", "instrument": "Vocals"},
+        headers={"X-Bandstand-Room": room["join_token"]},
+    )
+    assert response.status_code == 422
+
+
+def test_participant_token_is_limited_to_128_characters(tmp_data_dir):
+    client, _, key = _setup(tmp_data_dir)
+    room = _create(client, key)
+    accepted = _try_join(client, room, "Maya", "Vocals", participant_token="t" * 128)
+    assert accepted.status_code == 200
+    assert _try_join(
+        client, room, "Sam", "Guitar", participant_token="s" * 129
+    ).status_code == 422
+    person = accepted.json()
+    assert _propose(client, room, person, "Valid token").status_code == 200
+    headers = _guest_headers(room, person)
+    headers["X-Bandstand-Participant"] = "t" * 129
+    assert client.post(
+        f"/room-api/{room['id']}/proposals", json={"title": "Too long"}, headers=headers
+    ).status_code == 422
+
+
+def test_a_room_takes_at_most_200_proposals_including_removed_ones(tmp_data_dir, monkeypatch):
+    monkeypatch.setenv("BANDSTAND_ROOMS_PROPOSALS_PER_MINUTE", "0")
+    monkeypatch.setenv("BANDSTAND_ROOMS_MAX_OPEN", "2")
+    client, cfg, key = _setup(tmp_data_dir)
+    room = _create(client, key)
+    maya = _join(client, room, "Maya", "Vocals")
+    sam = _join(client, room, "Sam", "Guitar")
+    first = _propose(client, room, maya, "Removed").json()
+    assert client.delete(
+        f"/api/rooms/{room['id']}/proposals/{first['id']}", headers={"X-Bandstand-Key": key}
+    ).status_code == 200
+    for n in range(199):
+        assert _propose(client, room, maya, f"Song {n}").status_code == 200
+    blocked = _propose(client, room, sam, "One more")
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"] == "This room already has 200 songs. Start a new room for more"
+    conn = db.connect(cfg.db_path)
+    assert conn.execute(
+        "SELECT COUNT(*) FROM room_proposals WHERE room_id = ?", (room["id"],)
+    ).fetchone()[0] == 200
+    conn.close()
+    second = _create(client, key, "Second room")
+    other = _join(client, second, "Rea", "Bass")
+    assert _propose(client, second, other, "More room").status_code == 200
+
+
+def test_a_guest_can_volunteer_for_at_most_four_instruments_per_proposal(tmp_data_dir):
+    client, _, key = _setup(tmp_data_dir)
+    room = _create(client, key)
+    maya = _join(client, room, "Maya", "Vocals")
+    sam = _join(client, room, "Sam", "Guitar")
+    proposal = _propose(client, room, maya, "One").json()
+    other = _propose(client, room, maya, "Two").json()
+    path = f"/room-api/{room['id']}/proposals/{proposal['id']}/volunteers"
+    for instrument in ("Guitar", "Bass", "Drums", "Keys"):
+        assert client.put(f"{path}/{instrument}", headers=_guest_headers(room, maya)).status_code == 200
+    blocked = client.put(f"{path}/Vocals", headers=_guest_headers(room, maya))
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"] == "You can volunteer for at most 4 instruments on one song"
+    # A repeat, another song, and another guest each remain allowed.
+    assert client.put(f"{path}/guitar", headers=_guest_headers(room, maya)).status_code == 200
+    assert client.put(f"{path}/Vocals", headers=_guest_headers(room, sam)).status_code == 200
+    assert client.put(
+        f"/room-api/{room['id']}/proposals/{other['id']}/volunteers/Vocals",
+        headers=_guest_headers(room, maya),
+    ).status_code == 200
+    state = client.get(
+        f"/room-api/{room['id']}", headers={"X-Bandstand-Room": room["join_token"]}
+    ).json()
+    assert len(state["proposals"][0]["volunteers"]) == 5
+
+
+@pytest.mark.parametrize("route", ["votes", "volunteers"])
+def test_votes_and_volunteers_have_a_per_guest_per_minute_cap(tmp_data_dir, monkeypatch, route):
+    monkeypatch.setenv("BANDSTAND_ROOMS_PROPOSALS_PER_MINUTE", "0")
+    now = rooms._now()
+    monkeypatch.setattr(rooms, "_now", lambda: now)
+    client, _, key = _setup(tmp_data_dir)
+    limit = config.load().rooms_participation_per_minute
+    assert limit == config.DEFAULT_ROOMS_PARTICIPATION_PER_MINUTE == 30
+    room = _create(client, key)
+    maya = _join(client, room, "Maya", "Vocals")
+    sam = _join(client, room, "Sam", "Guitar")
+    choices = ("play", "hear") if route == "votes" else ("Guitar", "Bass", "Keys", "Drums")
+    for n in range(limit):
+        if n % len(choices) == 0:
+            proposal = _propose(client, room, maya, f"Song {n}").json()
+        path = f"/room-api/{room['id']}/proposals/{proposal['id']}/{route}/{choices[n % len(choices)]}"
+        assert client.put(path, headers=_guest_headers(room, maya)).status_code == 200
+    next_song = _propose(client, room, maya, "Next song").json()
+    path = f"/room-api/{room['id']}/proposals/{next_song['id']}/{route}/{choices[0]}"
+    blocked = client.put(path, headers=_guest_headers(room, maya))
+    assert blocked.status_code == 429
+    assert blocked.json()["detail"] == "You can vote or volunteer 30 times a minute. Try again in a moment"
+    assert client.put(path, headers=_guest_headers(room, sam)).status_code == 200
+    monkeypatch.setattr(rooms, "_now", lambda: now + 60 * 1000)
+    assert client.put(path, headers=_guest_headers(room, maya)).status_code == 200
+
+
+def test_the_participation_allowance_is_shared_and_repeats_do_not_publish(tmp_data_dir, monkeypatch):
+    monkeypatch.setenv("BANDSTAND_ROOMS_PARTICIPATION_PER_MINUTE", "2")
+    client, _, key = _setup(tmp_data_dir)
+    room = _create(client, key)
+    maya = _join(client, room, "Maya", "Vocals")
+    first = _propose(client, room, maya, "One").json()
+    second = _propose(client, room, maya, "Two").json()
+    path = f"/room-api/{room['id']}/proposals/{first['id']}"
+    published = []
+    monkeypatch.setattr(rooms, "_publish", published.append)
+    headers = _guest_headers(room, maya)
+    for action in ("votes/play", "volunteers/Vocals"):
+        assert client.put(f"{path}/{action}", headers=headers).status_code == 200
+    state = client.get(f"/api/rooms/{room['id']}", headers={"X-Bandstand-Key": key}).json()
+    for action in ("votes/play", "volunteers/vocals"):
+        assert client.put(f"{path}/{action}", headers=headers).status_code == 200
+    assert published == [room["id"], room["id"]]
+    assert client.get(
+        f"/api/rooms/{room['id']}", headers={"X-Bandstand-Key": key}
+    ).json() == state
+    for action in ("votes/hear", "volunteers/Guitar"):
+        assert client.put(f"{path}/{action}", headers=headers).status_code == 429
+    assert client.delete(
+        f"/api/rooms/{room['id']}/proposals/{first['id']}", headers={"X-Bandstand-Key": key}
+    ).status_code == 200
+    path = f"/room-api/{room['id']}/proposals/{second['id']}/votes/play"
+    assert client.put(path, headers=headers).status_code == 429
+    monkeypatch.setenv("BANDSTAND_ROOMS_PARTICIPATION_PER_MINUTE", "0")
+    assert client.put(path, headers=headers).status_code == 200
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_the_participation_cap_defaults_when_unset_or_blank(tmp_data_dir, monkeypatch, value):
+    if value is not None:
+        monkeypatch.setenv("BANDSTAND_ROOMS_PARTICIPATION_PER_MINUTE", value)
+    assert config.load().rooms_participation_per_minute == 30
+
+
+@pytest.mark.parametrize("bad", ["-1", "many"])
+def test_an_unusable_participation_cap_is_refused(tmp_data_dir, monkeypatch, bad):
+    monkeypatch.setenv("BANDSTAND_ROOMS_PARTICIPATION_PER_MINUTE", bad)
+    with pytest.raises(config.ConfigProblem, match="BANDSTAND_ROOMS_PARTICIPATION_PER_MINUTE"):
+        config.load()
+
+
+@pytest.mark.parametrize("piece_id", ["unknown", "deleted", "", 123, {"id": "live"}])
+def test_a_guest_proposal_refuses_a_piece_that_is_not_live(tmp_data_dir, piece_id):
+    client, cfg, key = _setup(tmp_data_dir)
+    room = _create(client, key)
+    person = _join(client, room, "Maya", "Vocals")
+    conn = db.connect(cfg.db_path)
+    conn.execute(
+        "INSERT INTO pieces (id, title, page_count, added_at, updated_at, deleted_at) "
+        "VALUES ('deleted', 'Gone', 1, 1, 1, 1)"
+    )
+    conn.close()
+    response = client.post(
+        f"/room-api/{room['id']}/proposals", json={"title": "A song", "piece_id": piece_id},
+        headers=_guest_headers(room, person),
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "That song is not in the library"
+    state = client.get(
+        f"/room-api/{room['id']}", headers={"X-Bandstand-Room": room["join_token"]}
+    ).json()
+    assert state["proposals"] == []
+    assert state["room"]["revision"] == 1
+
+
+def test_a_guest_proposal_can_reference_a_live_piece(tmp_data_dir):
+    client, cfg, key = _setup(tmp_data_dir)
+    room = _create(client, key)
+    person = _join(client, room, "Maya", "Vocals")
+    conn = db.connect(cfg.db_path)
+    conn.execute(
+        "INSERT INTO pieces (id, title, page_count, added_at, updated_at) "
+        "VALUES ('live', 'Chameleon', 1, 1, 1)"
+    )
+    conn.close()
+    assert client.post(
+        f"/room-api/{room['id']}/proposals", json={"title": "Chameleon", "piece_id": "live"},
+        headers=_guest_headers(room, person),
+    ).status_code == 200
+    assert _propose(client, room, person, "No library piece").status_code == 200
+    state = client.get(
+        f"/room-api/{room['id']}", headers={"X-Bandstand-Room": room["join_token"]}
+    ).json()
+    assert [p["piece_id"] for p in state["proposals"]] == ["live", None]
 
 
 # ------------------------------------------------------------ guests per room
@@ -569,3 +826,49 @@ def test_director_closing_a_room_ends_it_for_guests_at_once(tmp_data_dir):
         headers=_guest_headers(room, maya),
     ).status_code == 410
     assert client.get("/api/rooms/active", headers={"X-Bandstand-Key": key}).json() is None
+
+
+@pytest.mark.parametrize("ended", ["closed", "expired"])
+@pytest.mark.parametrize("action", ["promote", "reorder", "current", "remove"])
+def test_director_queue_changes_refuse_closed_or_expired_rooms(tmp_data_dir, monkeypatch, ended, action):
+    client, cfg, key = _setup(tmp_data_dir)
+    room = _create(client, key)
+    person = _join(client, room, "Maya", "Vocals")
+    director = {"X-Bandstand-Key": key}
+    first = _propose(client, room, person, "Queued").json()
+    second = _propose(client, room, person, "Waiting").json()
+    entry = client.post(
+        f"/api/rooms/{room['id']}/queue", json={"proposal_id": first["id"]}, headers=director
+    ).json()
+    if ended == "closed":
+        assert client.post(f"/api/rooms/{room['id']}/close", headers=director).status_code == 200
+    else:
+        now = rooms._now()
+        monkeypatch.setattr(rooms, "_now", lambda: now)
+        conn = db.connect(cfg.db_path)
+        conn.execute(
+            "UPDATE rehearsal_rooms SET join_expires_at = ? WHERE id = ?", (now, room["id"])
+        )
+        conn.close()
+    before = client.get(f"/api/rooms/{room['id']}", headers=director).json()
+    published = []
+    monkeypatch.setattr(rooms, "_publish", published.append)
+    path = f"/api/rooms/{room['id']}"
+    if action == "promote":
+        response = client.post(f"{path}/queue", json={"proposal_id": second["id"]}, headers=director)
+    elif action == "reorder":
+        response = client.put(
+            f"{path}/queue/order",
+            json={"entry_ids": [entry["id"]], "expected_revision": before["room"]["queue_revision"]},
+            headers=director,
+        )
+    elif action == "current":
+        response = client.post(f"{path}/queue/{entry['id']}/current", headers=director)
+    else:
+        response = client.delete(f"{path}/proposals/{first['id']}", headers=director)
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "This room is closed" if ended == "closed" else "This room has expired"
+    )
+    assert client.get(f"/api/rooms/{room['id']}", headers=director).json() == before
+    assert published == []

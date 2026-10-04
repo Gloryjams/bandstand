@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { confirmLabel, planPairLinks } from "../lib/pair-confirm";
-import { upsertBand, type BandsState } from "../lib/meta";
+import { legacyBandId, upsertBand, type BandsState } from "../lib/meta";
 import { useUi } from "../lib/store";
 
 // The confirm screen must not touch the registry until the player taps confirm, so
@@ -21,6 +21,13 @@ const KEY_MINE = "m".repeat(64);
 const KEY_OTHER = "o".repeat(64);
 
 const empty: BandsState = { bands: [], activeId: null };
+const EVIL = "https://evil.example/b7373b6a";
+const REAL = "https://bandstand.example.com";
+
+function legacyCollisionState(url: string): BandsState {
+  const id = legacyBandId(url);
+  return { bands: [{ id, url, key: KEY_MINE, label: "Stored band", dbName: `bandstand-${id}` }], activeId: id };
+}
 
 function stubHealth(names: Record<string, string>) {
   const mock = vi.fn(async (input: RequestInfo | URL) => {
@@ -43,6 +50,24 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("planPairLinks", () => {
+  test.each([[EVIL, REAL], [REAL, EVIL]])("a legacy id collision with %s is an add", (stored, incoming) => {
+    expect(legacyBandId(stored!)).toBe("200b78e0");
+    expect(legacyBandId(incoming!)).toBe("200b78e0");
+    const plan = planPairLinks(legacyCollisionState(stored!), [{ url: incoming!, key: KEY_OTHER }]);
+    expect(plan).toEqual([{ url: incoming, key: KEY_OTHER, action: "add", existing: null }]);
+    expect(confirmLabel(plan)).toBe("Add band");
+  });
+
+  test("a multi-band link keeps both colliding URLs and deduplicates by normalized URL", () => {
+    const plan = planPairLinks(empty, [
+      { url: EVIL, key: KEY_MINE }, { url: REAL, key: KEY_OTHER },
+      { url: `${REAL}/`, key: "duplicate-test-key" },
+    ]);
+    expect(plan.map((p) => p.url)).toEqual([EVIL, REAL]);
+    expect(plan.map((p) => p.action)).toEqual(["add", "add"]);
+    expect(confirmLabel(plan)).toBe("Add bands");
+  });
+
   test("a server this device has never seen is an add", () => {
     const plan = planPairLinks(empty, [{ url: STRANGER, key: KEY_OTHER }]);
     expect(plan).toHaveLength(1);
@@ -86,6 +111,22 @@ describe("planPairLinks", () => {
 });
 
 describe("PairConfirm: the add path", () => {
+  test.each([[EVIL, REAL], [REAL, EVIL]])("shows Add band for a URL colliding with stored %s", async (stored, incoming) => {
+    const state = legacyCollisionState(stored!);
+    useUi.setState({ bands: state.bands, activeBandId: state.activeId, pairing: { url: stored!, key: KEY_MINE } });
+    stubHealth({ [incoming!]: "New band name" });
+    const onClose = vi.fn();
+    render(<PairConfirm links={[{ url: incoming!, key: KEY_OTHER }]} onClose={onClose} />);
+    await screen.findByText("New band name");
+    expect(screen.getByText("New band")).toBeInTheDocument();
+    expect(screen.queryByText("Replaces sign-in")).not.toBeInTheDocument();
+    expect(signInMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Add band" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(signInMock).toHaveBeenCalledWith(incoming, KEY_OTHER);
+    expect(useUi.getState().bands).toEqual(state.bands);
+  });
+
   test("shows the band and server, writes nothing until Add band is tapped", async () => {
     stubHealth({ [STRANGER]: "Somebody Else's Band" });
     const onClose = vi.fn();

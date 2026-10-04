@@ -7,9 +7,10 @@
 import Dexie, { type Table } from "dexie";
 
 import { LEGACY_DB_NAME, BandstandDB } from "./db";
+import { newUlid } from "./ulid";
 
 export interface BandPairing {
-  id: string;      // stable hash of the normalized server url
+  id: string;      // local record id: fresh ULID, or a preserved legacy FNV id
   url: string;     // normalized (no trailing slash)
   key: string;     // this device's sign-in key for that band
   label: string;   // display name (refreshed from /api/health `name` when online)
@@ -29,12 +30,22 @@ class MetaDB extends Dexie {
 const meta = new MetaDB();
 
 export function normalizeUrl(url: string): string {
-  return url.trim().replace(/\/+$/, "");
+  const trimmed = url.trim();
+  try {
+    // URL canonicalizes the host, scheme and default port, preserving path case.
+    const canonical = new URL(trimmed).href;
+    const suffixAt = canonical.search(/[?#]/);
+    const base = suffixAt < 0 ? canonical : canonical.slice(0, suffixAt);
+    const suffix = suffixAt < 0 ? "" : canonical.slice(suffixAt);
+    return base.replace(/\/+$/, "") + suffix;
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
 }
 
-/** Stable id for a server url (FNV-1a 32-bit, hex). Drives the per-band DB name. */
-export function bandId(url: string): string {
-  const s = normalizeUrl(url).toLowerCase();
+/** Historical FNV id, only for migrating a pre-switcher pairing. Never an identity. */
+export function legacyBandId(url: string): string {
+  const s = url.trim().replace(/\/+$/, "").toLowerCase();
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -48,15 +59,51 @@ export interface BandsState {
   activeId: string | null;
 }
 
+function freshBandStorage(bands: BandPairing[]): Pick<BandPairing, "id" | "dbName"> {
+  let id: string;
+  let dbName: string;
+  do {
+    // getRandomValues works on plain HTTP too; no subtle or randomUUID required.
+    id = newUlid();
+    dbName = `bandstand-${id}`;
+  } while (bands.some((b) => b.id === id || b.dbName === dbName));
+  return { id, dbName };
+}
+
+/** Registry order is insertion order. Preserve old storage, except later duplicate
+ *  ids get a fresh, empty mirror. Never copy credentials or mirror data across URLs. */
+function migrateBandsState(state: BandsState): BandsState {
+  const seenIds = new Set<string>();
+  const bands: BandPairing[] = [];
+  let changed = false;
+  for (const stored of state.bands) {
+    const url = normalizeUrl(stored.url);
+    const storage = seenIds.has(stored.id) ? freshBandStorage([...state.bands, ...bands]) : null;
+    const band = storage || url !== stored.url ? { ...stored, ...storage, url } : stored;
+    seenIds.add(band.id);
+    bands.push(band);
+    if (band !== stored) changed = true;
+  }
+  // An ambiguous active id still selects the first entry, just as before migration.
+  return changed ? { ...state, bands } : state;
+}
+
 export async function loadBandsState(): Promise<BandsState> {
-  const bands = ((await meta.kv.get("bands"))?.value as BandPairing[] | undefined) ?? [];
-  const activeId = ((await meta.kv.get("active_band"))?.value as string | undefined) ?? null;
-  return { bands, activeId };
+  return meta.transaction("rw", meta.kv, async () => {
+    const bands = ((await meta.kv.get("bands"))?.value as BandPairing[] | undefined) ?? [];
+    const activeId = ((await meta.kv.get("active_band"))?.value as string | undefined) ?? null;
+    const stored = { bands, activeId };
+    const state = migrateBandsState(stored);
+    if (state !== stored) await saveBandsState(state);
+    return state;
+  });
 }
 
 export async function saveBandsState(state: BandsState): Promise<void> {
-  await meta.kv.put({ key: "bands", value: state.bands });
-  await meta.kv.put({ key: "active_band", value: state.activeId });
+  await meta.kv.bulkPut([
+    { key: "bands", value: state.bands },
+    { key: "active_band", value: state.activeId },
+  ]);
 }
 
 /**
@@ -67,23 +114,23 @@ export async function saveBandsState(state: BandsState): Promise<void> {
 export function upsertBand(
   state: BandsState, url: string, key: string, label?: string,
 ): { state: BandsState; band: BandPairing; added: boolean } {
+  state = migrateBandsState(state);
   const norm = normalizeUrl(url);
-  const id = bandId(norm);
-  const existing = state.bands.find((b) => b.id === id);
+  const existingIndex = state.bands.findIndex((b) => b.url === norm);
+  const existing = state.bands[existingIndex];
   if (existing) {
     const band: BandPairing = { ...existing, key, label: label ?? existing.label };
     return {
-      state: { bands: state.bands.map((b) => (b.id === id ? band : b)), activeId: id },
+      state: { bands: state.bands.map((b, i) => (i === existingIndex ? band : b)), activeId: band.id },
       band,
       added: false,
     };
   }
   const band: BandPairing = {
-    id, url: norm, key,
+    ...freshBandStorage(state.bands), url: norm, key,
     label: label ?? "Bandstand",
-    dbName: state.bands.length === 0 ? LEGACY_DB_NAME : `bandstand-${id}`,
   };
-  return { state: { bands: [...state.bands, band], activeId: id }, band, added: true };
+  return { state: { bands: [...state.bands, band], activeId: band.id }, band, added: true };
 }
 
 /** Pure remove (sign out of one band). The next remaining band becomes active. */
@@ -107,8 +154,10 @@ export async function migrateLegacyPairing(): Promise<void> {
     const url = (await legacy.kv.get("server_url"))?.value as string | undefined;
     const key = (await legacy.kv.get("server_key"))?.value as string | undefined;
     if (!url || !key) return;
-    const { state } = upsertBand({ bands: [], activeId: null }, url, key);
-    await saveBandsState(state);
+    const band: BandPairing = {
+      id: legacyBandId(url), url: normalizeUrl(url), key, label: "Bandstand", dbName: LEGACY_DB_NAME,
+    };
+    await saveBandsState({ bands: [band], activeId: band.id });
     await legacy.kv.delete("server_url");
     await legacy.kv.delete("server_key");
   } finally {

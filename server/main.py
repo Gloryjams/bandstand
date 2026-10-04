@@ -5,6 +5,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from server import config, db, instance_lock, share_access
 from server.backup import BackupScheduler
@@ -18,6 +20,51 @@ from server.ingest.watcher import Watcher
 _STATIC_APP = Path(__file__).parent / "static" / "app"
 _STATIC_CHARTS = Path(__file__).parent / "static" / "charts"
 _STATIC_ROOM = Path(__file__).parent / "static" / "room"
+
+
+# Based on the public member door policy. Pairings are stored on each device,
+# not in this server's configuration: api.ts fetches pairing.url + path, and a
+# device can switch to a band on another HTTPS or LAN HTTP origin. Restricting
+# connect-src to this server would block those bands, uploads and live streams.
+# data: fonts cover pdf.js's embedded-font fallback; app fonts stay same-origin.
+_BUNDLE_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'wasm-unsafe-eval'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self' data:; "
+    "img-src 'self' data: blob:; "
+    "media-src 'self' blob:; "
+    "connect-src 'self' https: http:; "
+    "worker-src 'self'; "
+    "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+)
+
+
+class _BundleSecurityHeaders:
+    """Cover assets, HTML, errors and redirects for one bundle prefix."""
+
+    def __init__(self, app: ASGIApp, prefix: str, csp: str | None) -> None:
+        self.app = app
+        self.prefix = prefix
+        self.csp = csp
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        path = scope.get("path", "")
+        if scope["type"] != "http" or not (
+            path == self.prefix or path.startswith(self.prefix + "/")
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        async def with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["X-Content-Type-Options"] = "nosniff"
+                if self.csp and headers.get("content-type", "").split(";")[0] == "text/html":
+                    headers.setdefault("Content-Security-Policy", self.csp)
+            await send(message)
+
+        await self.app(scope, receive, with_headers)
 
 
 def chart_editor_installed() -> bool:
@@ -119,6 +166,7 @@ def _serve_bundle(
     entrypoint: str = "index.html",
     missing_html: str | None = None,
     switched_off: Callable[[], str | None] | None = None,
+    csp: str | None = _BUNDLE_CSP,
 ) -> None:
     """Serve a built PWA bundle at {prefix}/* so devices load it same-origin.
 
@@ -139,6 +187,7 @@ def _serve_bundle(
 
     root = directory.resolve()
     slug = prefix.strip("/")
+    app.add_middleware(_BundleSecurityHeaders, prefix=prefix, csp=csp)
 
     def off_page():  # type: ignore[no-untyped-def]
         html = switched_off() if switched_off else None
@@ -233,7 +282,10 @@ def build_app() -> FastAPI:
     # mixed-content block a separately hosted https deploy hits doesn't apply here).
     # Built by `npm run build:bandstand` in apps/saltycharts.
     # Optional: it lives in its own repository, so an install may not have it.
-    _serve_bundle(app, "/charts", _STATIC_CHARTS, missing_html=_CHARTS_MISSING_HTML)
+    # SaltyCharts lives in another repository and its optional bundle is absent
+    # here. Leave its CSP off until its editor/import/export flows can be checked
+    # in a browser; it still receives nosniff on every response.
+    _serve_bundle(app, "/charts", _STATIC_CHARTS, missing_html=_CHARTS_MISSING_HTML, csp=None)
     # Rehearsal QR guests get a tiny no-PWA bundle with no workspace credential.
     # Behind BANDSTAND_ROOMS, like every /room-api and /api/rooms route.
     _serve_bundle(

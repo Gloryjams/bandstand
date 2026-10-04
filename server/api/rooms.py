@@ -8,11 +8,15 @@ anyone who can photograph it can join. So the feature is OFF until the operator 
 BANDSTAND_ROOMS=1 (every route here, guest and director alike, answers 404 while it
 is off), and when on it is bounded: BANDSTAND_ROOMS_MAX_OPEN rooms at once,
 BANDSTAND_ROOMS_MAX_GUESTS guests in a room, BANDSTAND_ROOMS_PROPOSALS_PER_MINUTE
-songs per guest. The director can remove any proposal and close the room at any time.
+songs per guest and BANDSTAND_ROOMS_PARTICIPATION_PER_MINUTE votes and volunteers
+per guest. Each room takes at most 200 proposals, and each guest can volunteer for
+at most 4 instruments on one proposal. The director can remove proposals and close
+the room while it is open.
 """
 
 import hashlib
 import hmac
+import re
 import secrets
 import time
 from typing import Any
@@ -24,6 +28,8 @@ from server.api import events
 from server.ulid import new_ulid
 
 ROOMS_OFF_MESSAGE = "Rehearsal rooms are switched off on this server"
+MAX_PROPOSALS_PER_ROOM = 200
+MAX_VOLUNTEERS_PER_PARTICIPANT = 4
 
 
 def require_rooms_on() -> None:
@@ -68,6 +74,8 @@ def _room_for_guest(conn, room_id: str, token: str | None):
 def _participant_for_guest(conn, room_id: str, token: str | None):
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Participant credential required")
+    if len(token) > 128:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Your guest sign-in token is too long")
     row = conn.execute(
         "SELECT * FROM room_participants WHERE room_id = ? AND credential_hash = ? "
         "AND left_at IS NULL",
@@ -75,6 +83,17 @@ def _participant_for_guest(conn, room_id: str, token: str | None):
     ).fetchone()
     if row is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid participant credential")
+    return row
+
+
+def _open_room_for_director(conn, room_id: str):
+    row = conn.execute("SELECT * FROM rehearsal_rooms WHERE id = ?", (room_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Room not found")
+    if row["state"] != "open":
+        raise HTTPException(status.HTTP_409_CONFLICT, "This room is closed")
+    if row["join_expires_at"] <= _now():
+        raise HTTPException(status.HTTP_409_CONFLICT, "This room has expired")
     return row
 
 
@@ -139,7 +158,6 @@ def _publish(room_id: str) -> None:
 @router.post("/api/rooms", dependencies=[Depends(auth.require_director)])
 def create_room(body: dict[str, Any]):
     cfg = config.load()
-    now = _now()
     room_id = new_ulid()
     token = secrets.token_hex(32)
     title = _clean(body.get("title"), "title")
@@ -148,8 +166,10 @@ def create_room(body: dict[str, Any]):
         # BEGIN IMMEDIATE takes the write lock, so the count and the insert are one
         # step: two directors opening rooms at once cannot both slip under the cap.
         conn.execute("BEGIN IMMEDIATE")
+        now = _now()
         open_rooms = conn.execute(
-            "SELECT COUNT(*) FROM rehearsal_rooms WHERE state = 'open'"
+            "SELECT COUNT(*) FROM rehearsal_rooms WHERE state = 'open' AND join_expires_at > ?",
+            (now,),
         ).fetchone()[0]
         if open_rooms >= cfg.rooms_max_open:
             conn.execute("ROLLBACK")
@@ -177,7 +197,9 @@ def active_room():
     conn = db.connect(cfg.db_path)
     try:
         row = conn.execute(
-            "SELECT id FROM rehearsal_rooms WHERE state = 'open' ORDER BY created_at DESC LIMIT 1"
+            "SELECT id FROM rehearsal_rooms WHERE state = 'open' AND join_expires_at > ? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (_now(),),
         ).fetchone()
         return _state(conn, row["id"]) if row else None
     finally:
@@ -222,6 +244,7 @@ def promote_proposal(room_id: str, body: dict[str, Any]):
     conn = db.connect(cfg.db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
+        _open_room_for_director(conn, room_id)
         proposal = conn.execute(
             "SELECT * FROM room_proposals WHERE id = ? AND room_id = ? AND state = 'open'",
             (body.get("proposal_id"), room_id),
@@ -262,6 +285,7 @@ def remove_proposal(room_id: str, proposal_id: str):
     conn = db.connect(cfg.db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
+        _open_room_for_director(conn, room_id)
         changed = conn.execute(
             "UPDATE room_proposals SET state = 'withdrawn', updated_at = ? "
             "WHERE id = ? AND room_id = ? AND state != 'withdrawn'",
@@ -289,13 +313,8 @@ def reorder_queue(room_id: str, body: dict[str, Any]):
     conn = db.connect(cfg.db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
-        room = conn.execute("SELECT revision FROM rehearsal_rooms WHERE id = ?", (room_id,)).fetchone()
-        if room is None:
-            conn.execute("ROLLBACK")
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Room not found")
-        queue_revision = conn.execute(
-            "SELECT queue_revision FROM rehearsal_rooms WHERE id = ?", (room_id,)
-        ).fetchone()[0]
+        room = _open_room_for_director(conn, room_id)
+        queue_revision = room["queue_revision"]
         if int(body.get("expected_revision", -1)) != queue_revision:
             conn.execute("ROLLBACK")
             raise HTTPException(status.HTTP_409_CONFLICT, "Room changed; refresh before reordering")
@@ -331,6 +350,7 @@ def make_current(room_id: str, entry_id: str):
     conn = db.connect(cfg.db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
+        _open_room_for_director(conn, room_id)
         target = conn.execute(
             "SELECT id FROM room_queue_entries WHERE id = ? AND room_id = ?", (entry_id, room_id)
         ).fetchone()
@@ -370,16 +390,22 @@ def guest_room(room_id: str, x_bandstand_room: str | None = Header(default=None)
 def join_room(room_id: str, body: dict[str, Any], x_bandstand_room: str | None = Header(default=None)):
     cfg = config.load()
     conn = db.connect(cfg.db_path)
-    token = str(body.get("participant_token") or "").strip()
-    participant_id = str(body.get("participant_id") or "").strip()
+    token = str(body.get("participant_token") or "")
+    participant_id = str(body.get("participant_id") or "")
     try:
         conn.execute("BEGIN IMMEDIATE")
         _room_for_guest(conn, room_id, x_bandstand_room)
-        if len(token) < 32 or not participant_id:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", participant_id):
             conn.execute("ROLLBACK")
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "Stable participant_id and participant_token are required",
+                "Your guest ID must be 1 to 64 letters, numbers, underscores or hyphens",
+            )
+        if not 32 <= len(token) <= 128:
+            conn.execute("ROLLBACK")
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Your guest sign-in token must be 32 to 128 characters",
             )
         existing = conn.execute(
             "SELECT * FROM room_participants WHERE id = ?", (participant_id,)
@@ -437,6 +463,27 @@ def propose_song(
         if scope not in {"session", "save_allowed"}:
             conn.execute("ROLLBACK")
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid sharing scope")
+        music_key = str(body.get("music_key") or "").strip()
+        music_key = _clean(music_key, "music key", 16) if music_key else None
+        piece_id = body.get("piece_id")
+        if piece_id is not None and (
+            not isinstance(piece_id, str) or conn.execute(
+                "SELECT id FROM pieces WHERE id = ? AND deleted_at IS NULL", (piece_id,)
+            ).fetchone() is None
+        ):
+            conn.execute("ROLLBACK")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "That song is not in the library")
+        # All proposals count, including queued and withdrawn rows. Removing a
+        # song must not let a guest grow the database past the room's allowance.
+        proposals = conn.execute(
+            "SELECT COUNT(*) FROM room_proposals WHERE room_id = ?", (room_id,)
+        ).fetchone()[0]
+        if proposals >= MAX_PROPOSALS_PER_ROOM:
+            conn.execute("ROLLBACK")
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"This room already has {MAX_PROPOSALS_PER_ROOM} songs. Start a new room for more",
+            )
         # Counted from the table itself, withdrawn ones included, so a removed
         # proposal does not hand the guest a fresh allowance.
         per_minute = cfg.rooms_proposals_per_minute
@@ -457,7 +504,7 @@ def propose_song(
             "(id, room_id, participant_id, title, music_key, piece_id, sharing_scope, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (proposal_id, room_id, participant["id"], _clean(body.get("title"), "title"),
-             str(body.get("music_key") or "").strip() or None, body.get("piece_id"), scope, now, now),
+             music_key, piece_id, scope, now, now),
         )
         revision = _touch(conn, room_id)
         conn.execute("COMMIT")
@@ -475,7 +522,7 @@ def _proposal_participation(
     conn = db.connect(cfg.db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
-        _room_for_guest(conn, room_id, room_token)
+        room = _room_for_guest(conn, room_id, room_token)
         participant = _participant_for_guest(conn, room_id, participant_token)
         proposal = conn.execute(
             "SELECT id FROM room_proposals WHERE id = ? AND room_id = ? AND state != 'withdrawn'",
@@ -486,19 +533,62 @@ def _proposal_participation(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Proposal not found")
         now = _now()
         if kind in {"play", "hear"}:
+            existing = conn.execute(
+                "SELECT 1 FROM room_votes WHERE proposal_id = ? AND participant_id = ? AND kind = ?",
+                (proposal_id, participant["id"], kind),
+            ).fetchone()
+        else:
+            instrument = _clean(instrument, "instrument", 60)
+            instrument_key = instrument.casefold()
+            existing = conn.execute(
+                "SELECT 1 FROM room_volunteers "
+                "WHERE proposal_id = ? AND participant_id = ? AND instrument_key = ?",
+                (proposal_id, participant["id"], instrument_key),
+            ).fetchone()
+        if existing is not None:
+            # A retry makes no new row and sends no event that could make every
+            # guest refetch the room. It remains safe even at either allowance.
+            conn.execute("COMMIT")
+            return {"ok": True, "revision": room["revision"]}
+        if kind == "volunteer":
+            volunteers = conn.execute(
+                "SELECT COUNT(*) FROM room_volunteers WHERE proposal_id = ? AND participant_id = ?",
+                (proposal_id, participant["id"]),
+            ).fetchone()[0]
+            if volunteers >= MAX_VOLUNTEERS_PER_PARTICIPANT:
+                conn.execute("ROLLBACK")
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"You can volunteer for at most {MAX_VOLUNTEERS_PER_PARTICIPANT} instruments on one song",
+                )
+        # One allowance for both kinds of participation, counted under the write
+        # lock. Votes and volunteers on withdrawn proposals still count too.
+        per_minute = cfg.rooms_participation_per_minute
+        if per_minute:
+            cutoff = now - 60 * 1000
+            recent = conn.execute(
+                "SELECT (SELECT COUNT(*) FROM room_votes WHERE participant_id = ? AND created_at > ?) "
+                "+ (SELECT COUNT(*) FROM room_volunteers WHERE participant_id = ? AND created_at > ?)",
+                (participant["id"], cutoff, participant["id"], cutoff),
+            ).fetchone()[0]
+            if recent >= per_minute:
+                conn.execute("ROLLBACK")
+                raise HTTPException(
+                    status.HTTP_429_TOO_MANY_REQUESTS,
+                    f"You can vote or volunteer {per_minute} times a minute. Try again in a moment",
+                )
+        if kind in {"play", "hear"}:
             conn.execute(
-                "INSERT OR IGNORE INTO room_votes "
+                "INSERT INTO room_votes "
                 "(room_id, proposal_id, participant_id, kind, created_at) VALUES (?, ?, ?, ?, ?)",
                 (room_id, proposal_id, participant["id"], kind, now),
             )
         else:
             conn.execute(
-                "INSERT OR IGNORE INTO room_volunteers "
+                "INSERT INTO room_volunteers "
                 "(room_id, proposal_id, participant_id, instrument_key, instrument, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (room_id, proposal_id, participant["id"],
-                 _clean(instrument, "instrument", 60).casefold(),
-                 _clean(instrument, "instrument", 60), now),
+                (room_id, proposal_id, participant["id"], instrument_key, instrument, now),
             )
         revision = _touch(conn, room_id)
         conn.execute("COMMIT")

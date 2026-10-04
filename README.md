@@ -63,6 +63,16 @@ its own key. Two bands are two servers, and they share nothing.
 
 There is no cloud service behind it and no third-party account to create.
 
+## Before you start
+
+Bandstand is a public beta. Run it on your home network or behind Tailscale or
+WireGuard. If you put it on the internet, use https (a reverse proxy) and set
+`BANDSTAND_LIBRARY_QUOTA_MB`. Anyone who can watch your network traffic on plain
+http can read the director key. Only add bands, open sign-in links and import
+band copies from people you trust. Rehearsal rooms let anyone holding the room QR
+code post to your server while the room is open: close the room when rehearsal
+ends.
+
 ## Quick start
 
 Get Bandstand from [GitHub](https://github.com/gloryjams/bandstand). For a ZIP,

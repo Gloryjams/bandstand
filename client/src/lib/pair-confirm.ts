@@ -4,7 +4,7 @@
 // adding a stranger's server. The confirm screen shows this plan and waits for a tap.
 // Pure: no store, no api, no Dexie, so it is unit-testable and cannot write anything.
 
-import { bandId, normalizeUrl, type BandPairing, type BandsState } from "./meta";
+import { normalizeUrl, type BandPairing, type BandsState } from "./meta";
 
 export interface PairLink { url: string; key: string }
 
@@ -28,10 +28,9 @@ export function planPairLinks(state: BandsState, links: PairLink[]): PairPlanIte
   for (const l of links) {
     const url = normalizeUrl(l.url);
     if (!url || !l.key) continue;
-    const id = bandId(url);
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const existing = state.bands.find((b) => b.id === id) ?? null;
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const existing = state.bands.find((b) => normalizeUrl(b.url) === url) ?? null;
     const action: PairAction = !existing ? "add" : existing.key === l.key ? "same" : "replace";
     out.push({ url, key: l.key, action, existing });
   }

@@ -11,6 +11,8 @@ When you finish you will have:
 
 Time needed: about 20 minutes, most of it waiting for downloads.
 
+> **Public beta.** Bandstand is a public beta. Run it on your home network or behind Tailscale or WireGuard. If you put it on the internet, use https (a reverse proxy) and set `BANDSTAND_LIBRARY_QUOTA_MB`. Anyone who can watch your network traffic on plain http can read the director key. Only add bands, open sign-in links and import band copies from people you trust. Rehearsal rooms let anyone holding the room QR code post to your server while the room is open: close the room when rehearsal ends.
+
 ## What you need
 
 - A computer that can stay switched on while you use Bandstand. An old laptop, a
@@ -273,6 +275,11 @@ off on a new install. To switch them on, add this line to `.env` and type
 BANDSTAND_ROOMS=1
 ```
 
+While a room is open, anyone holding the code can post to your server, so close the
+room when rehearsal ends. Guests usually join your Wi-Fi to reach the room, so
+prefer a secure `https://` address for rooms (see "Reaching Bandstand from outside
+your home").
+
 While rooms are off, the "Start rehearsal" button in the app says that rooms are
 switched off, and an old room QR code opens a page that says the same.
 
@@ -287,6 +294,7 @@ the band's screen:
 | --- | --- | --- |
 | `BANDSTAND_ROOMS_MAX_OPEN` | How many rooms may be open at once | 1 |
 | `BANDSTAND_ROOMS_PROPOSALS_PER_MINUTE` | How many songs one guest may post per minute, 0 means no limit | 5 |
+| `BANDSTAND_ROOMS_PARTICIPATION_PER_MINUTE` | How many new votes and volunteer choices one guest may make per minute, counted together, 0 means no limit | 30 |
 | `BANDSTAND_ROOMS_MAX_GUESTS` | How many guests one room takes | 60 |
 
 The app shows one room at a time, so leave the first one at 1 unless you have a
@@ -294,6 +302,16 @@ reason. A guest who posts more than the limit is told to wait a moment. A song a
 guest has posted and then had removed still counts. When a room is full, the next
 person to scan the code is told so; closing the room and starting a new one makes
 space again.
+
+Each room takes at most 200 songs, including songs the director has removed.
+When it reaches that limit, start a new room. Each guest can volunteer for at most
+4 instruments on one song. Votes and volunteer choices share a minute's allowance;
+repeating the same choice uses no allowance. Choices on removed songs still count
+for that minute. A musical key can have at most 16 characters.
+
+A room's link expires after 12 hours. An expired room makes space for a new room
+just like a closed one. The director cannot change the queue after a room closes
+or its link expires.
 
 The director keeps control in the room itself. Each song in the pool has a
 **Remove** button, which takes it off every phone at once, including the queue if
@@ -609,8 +627,14 @@ pages back on.
 
 ## Reaching Bandstand from outside your home
 
-At home, on your own Wi-Fi, the plain `http://` address is fine for reading charts
-while the server is on.
+At home, on your own Wi-Fi, the plain `http://` address works for reading charts
+while the server is on, as long as you trust everyone on that network. On plain
+`http://` every device sends its key unencrypted, so anyone who can watch the
+network traffic can read it, including the director key. On a shared or guest
+network, and whenever you run rehearsal rooms, use one of the secure options
+below.
+
+Only add bands, open sign-in links and import band copies from people you trust.
 
 For rehearsals and gigs elsewhere you have two good options:
 

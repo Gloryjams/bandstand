@@ -1,10 +1,12 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { pdfLegacyWorker } from "./scripts/pdf-legacy-worker";
 
 export default defineConfig({
   base: "/app/",
   plugins: [
+    pdfLegacyWorker(),
     react(),
     VitePWA({
       registerType: "autoUpdate",

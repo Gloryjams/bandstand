@@ -1,6 +1,7 @@
 """The /app and /charts bundle mounts: same-origin PWA serving."""
 
 from fastapi.testclient import TestClient
+import pytest
 
 from server import main
 
@@ -88,6 +89,65 @@ def test_app_bundle_uses_same_mount(tmp_data_dir, tmp_path, monkeypatch):
     assert "bandstand-app" in r.text
 
 
+@pytest.mark.parametrize("prefix,attribute,entrypoint", [
+    ("/app", "_STATIC_APP", "index.html"),
+    ("/room", "_STATIC_ROOM", "room.html"),
+])
+def test_bundle_security_headers(tmp_data_dir, tmp_path, monkeypatch, prefix, attribute, entrypoint):
+    monkeypatch.setenv("BANDSTAND_ROOMS", "1")
+    root = tmp_path / "bundle"
+    _build_bundle(root, "protected-bundle")
+    if entrypoint != "index.html":
+        (root / "index.html").rename(root / entrypoint)
+    (root / "extra.htm").write_text("<!doctype html><title>extra</title>", encoding="utf-8")
+    monkeypatch.setattr(main, attribute, root)
+    c = _client(tmp_data_dir)
+
+    # Root, explicit HTML and SPA fallback all need the same document policy.
+    for path in (prefix, prefix + "/", prefix + "/" + entrypoint, prefix + "/deep/route", prefix + "/extra.htm"):
+        r = c.get(path)
+        assert r.status_code == 200, path
+        assert r.headers["x-content-type-options"] == "nosniff", path
+        directives = dict(d.split(" ", 1) for d in r.headers["content-security-policy"].split("; "))
+        assert directives == {
+            "default-src": "'self'",
+            "script-src": "'self' 'wasm-unsafe-eval'",
+            "style-src": "'self' 'unsafe-inline'",
+            "font-src": "'self' data:",
+            "img-src": "'self' data: blob:",
+            "media-src": "'self' blob:",
+            "connect-src": "'self' https: http:",
+            "worker-src": "'self'",
+            "object-src": "'none'",
+            "base-uri": "'none'",
+            "frame-ancestors": "'none'",
+            "form-action": "'none'",
+        }, path
+
+    for path, status in (("/assets/x-abc123.js", 200), ("/sw.js", 200), ("/missing.js", 404), ("/.hidden", 404)):
+        r = c.get(prefix + path)
+        assert r.status_code == status
+        assert r.headers["x-content-type-options"] == "nosniff"
+        assert "content-security-policy" not in r.headers
+
+    assert c.post(prefix + "/").headers["x-content-type-options"] == "nosniff"
+
+
+def test_unverified_charts_bundle_keeps_csp_off(tmp_data_dir, tmp_path, monkeypatch):
+    root = tmp_path / "charts"
+    monkeypatch.setattr(main, "_STATIC_CHARTS", root)
+    c = _client(tmp_data_dir)
+    r = c.get("/charts/")
+    assert r.status_code == 404
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert "content-security-policy" not in r.headers
+    _build_bundle(root, "charts")
+    for path in ("/charts/", "/charts/assets/x-abc123.js", "/charts/missing.js"):
+        r = c.get(path)
+        assert r.headers["x-content-type-options"] == "nosniff"
+        assert "content-security-policy" not in r.headers
+
+
 def _room_bundle(tmp_path, monkeypatch):
     root = tmp_path / "room-bundle"
     root.mkdir()
@@ -122,6 +182,8 @@ def test_room_bundle_is_off_until_rooms_are_switched_on(tmp_data_dir, tmp_path, 
         assert "switched off" in r.text
         assert "rehearsal-room" not in r.text
         assert r.headers["cache-control"] == "no-store"
+        assert r.headers["x-content-type-options"] == "nosniff"
+        assert r.headers["content-security-policy"] == main._BUNDLE_CSP
     r = c.get("/room/room.js")
     assert r.status_code == 404
     assert "console.log" not in r.text

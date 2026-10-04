@@ -4,6 +4,7 @@ import os
 
 DEFAULT_SHARE_ATTRIBUTION = "Shared from a gig book"
 DEFAULT_ROOMS_PROPOSALS_PER_MINUTE = 5
+DEFAULT_ROOMS_PARTICIPATION_PER_MINUTE = 30
 DEFAULT_ROOMS_MAX_GUESTS = 60
 
 
@@ -32,6 +33,9 @@ class Config:
     rooms_max_open: int = 1
     # How many songs one guest may post per minute. 0 means no limit.
     rooms_proposals_per_minute: int = DEFAULT_ROOMS_PROPOSALS_PER_MINUTE
+    # How many new votes and volunteer choices one guest may make per minute,
+    # counted together. 0 means no limit.
+    rooms_participation_per_minute: int = DEFAULT_ROOMS_PARTICIPATION_PER_MINUTE
     # How many guests one room takes. A guest id is chosen by the phone, so without
     # this a single phone could join again and again and post without bound.
     rooms_max_guests: int = DEFAULT_ROOMS_MAX_GUESTS
@@ -169,6 +173,11 @@ def load() -> Config:
         rooms_proposals_per_minute=_at_least(
             "BANDSTAND_ROOMS_PROPOSALS_PER_MINUTE",
             _int_env("BANDSTAND_ROOMS_PROPOSALS_PER_MINUTE", DEFAULT_ROOMS_PROPOSALS_PER_MINUTE),
+            0,
+        ),
+        rooms_participation_per_minute=_at_least(
+            "BANDSTAND_ROOMS_PARTICIPATION_PER_MINUTE",
+            _int_env("BANDSTAND_ROOMS_PARTICIPATION_PER_MINUTE", DEFAULT_ROOMS_PARTICIPATION_PER_MINUTE),
             0,
         ),
         rooms_max_guests=_at_least(
