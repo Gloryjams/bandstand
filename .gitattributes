@@ -1,0 +1,39 @@
+# What does NOT go into the public tree.
+#
+# "git archive" (and the ZIP download of a hosted repository) leaves out every
+# path marked export-ignore. The public repository is made from that export, with
+# a clean history, so these files never leave the private one:
+#
+#   git archive --format=tar HEAD | tar -x -C ../bandstand-public
+#
+# scripts/check-public-tree.py checks the result. This list is a proposal: each
+# line is a decision that can be changed (rewrite the file, then remove the line).
+
+# Working notes for the maintainer and for coding agents.
+CLAUDE.md                     export-ignore
+KAWAII-MORNING-HANDOFF.md     export-ignore
+
+# Design history. Written for one person, full of private infrastructure.
+docs/specs                    export-ignore
+docs/specs/**                 export-ignore
+docs/plans                    export-ignore
+docs/plans/**                 export-ignore
+
+# Operations of the original install: Windows services, a cloud drive inbox,
+# the hosted demo and its installer, an off-site backup route.
+scripts/band-instance         export-ignore
+scripts/band-instance/**      export-ignore
+scripts/demo-instance         export-ignore
+scripts/demo-instance/**      export-ignore
+scripts/drive-inbox.ps1       export-ignore
+scripts/drive-inbox-mac.py    export-ignore
+scripts/backup-library.py     export-ignore
+demo                          export-ignore
+demo/**                       export-ignore
+
+# Screenshots of a real library. The sheet music in them belongs to other people.
+shots-kawaii                  export-ignore
+shots-kawaii/**               export-ignore
+
+# The private half of the public-tree check.
+scripts/private-patterns.txt  export-ignore

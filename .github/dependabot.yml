@@ -1,0 +1,13 @@
+# Proposes updates for everything that is pinned by digest or by commit: the base
+# images in the Dockerfile and the actions in the workflows. A pin without this
+# would quietly go stale.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

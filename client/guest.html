@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/guest/favicon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/guest/apple-touch-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <title>Chart</title>
+  </head>
+  <body>
+    <!-- Build entry only. In production the public app serves its own shell with the
+         same mount point and a real data-chart-url; it loads /guest/guest.js. -->
+    <div id="guest-root" data-chart-url=""></div>
+    <script type="module" src="/src/guest/main.tsx"></script>
+  </body>
+</html>

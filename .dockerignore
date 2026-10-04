@@ -1,0 +1,55 @@
+# Allow-list, at every level: ignore everything, then admit only the exact files
+# the image is built from. A file that is not named here does not reach the build,
+# which is the safe way round for a repository whose working copies sit next to
+# real data and keys.
+*
+
+# --- Server: source, migrations, and the two files that describe it ------------
+!server/
+server/*
+!server/*.py
+!server/pyproject.toml
+!server/requirements.lock
+
+!server/api/
+server/api/*
+!server/api/*.py
+
+!server/ingest/
+server/ingest/*
+!server/ingest/*.py
+
+!server/migrations/
+server/migrations/*
+!server/migrations/*.sql
+
+# --- Client: source and the files the build reads -------------------------------
+!client/
+client/*
+!client/src/
+!client/public/
+!client/scripts/
+!client/*.html
+!client/package.json
+!client/package-lock.json
+!client/tsconfig.json
+!client/tsconfig.*.json
+!client/vite.config.ts
+!client/vite.*.config.ts
+
+# --- Second layer: never data, never secrets, wherever they turn up -------------
+# These also apply inside the folders admitted above.
+**/.*
+**/__pycache__/
+**/*.py[cod]
+**/*.db
+**/*.db-*
+**/*.sqlite3
+**/*.bak
+**/*.bak-*
+**/*.before-upgrade-*
+**/*.log
+**/*.pem
+**/*.key
+**/workspaces.json
+**/node_modules/

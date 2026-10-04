@@ -1,0 +1,152 @@
+name: CI
+
+# Runs on every push and every pull request. Needs no secrets, so it works
+# unchanged on forks.
+#
+# Actions are pinned by commit, with the version in a comment. Dependabot
+# proposes the bumps (.github/dependabot.yml).
+
+on:
+  push:
+    # A release tag runs these same jobs through release.yml, once.
+    tags-ignore:
+      - "v*"
+    branches:
+      - "**"
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  client:
+    name: Client (vitest, tsc -b, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Unit tests
+        run: npx vitest run
+
+      # "npm run build" is "tsc -b" first, then the three bundles. tsc -b is
+      # stricter than tsc --noEmit, so this is the real type check.
+      - name: Type check and build (app, guest, room)
+        run: npm run build
+
+      - name: Shipped copy carries no em-dashes or en-dashes
+        run: npm run check:copy
+
+      # Known debt: the linter reports errors on the current code. It runs so
+      # the count stays visible, and it does not block until that is paid off.
+      - name: Lint (informational)
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Keep the built bundles for the server tests
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: client-bundles
+          path: server/static/
+          if-no-files-found: error
+          retention-days: 3
+
+  server:
+    name: Server (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: client
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: server/requirements-dev.lock
+
+      # The same pinned, hash-checked set the release image is built from,
+      # plus the test tools.
+      - name: Install
+        run: python -m pip install --disable-pip-version-check --require-hashes -r server/requirements-dev.lock
+
+      # With the bundles present, the share-page test that needs the guest
+      # bundle runs instead of being skipped.
+      - name: Fetch the built bundles
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: client-bundles
+          path: server/static/
+
+      - name: Tests
+        working-directory: server
+        run: python -m pytest -q -p no:cacheprovider
+
+      # Documents and settings carry no em-dashes or en-dashes, and nothing in
+      # the tree names private infrastructure.
+      - name: Public tree check
+        run: python3 scripts/check-public-tree.py
+
+  docker:
+    name: Docker (build and smoke test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Read the version
+        id: version
+        run: echo "value=$(python3 -c "import tomllib;print(tomllib.load(open('server/pyproject.toml','rb'))['project']['version'])")" >> "$GITHUB_OUTPUT"
+
+      # Files that must never reach an image, put where a careless working copy
+      # would have them. The smoke test checks that none of them arrived.
+      - name: Plant files that must not ship
+        run: |
+          mkdir -p server/data/backups
+          echo planted > server/data/backups/library.db.bak-20260101-000000
+          echo planted > server/key.txt
+          echo planted > server/service-account.json
+          echo planted > server/server.log
+          echo planted > server/.envrc
+          echo planted > client/.npmrc
+
+      - name: Build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          push: false
+          load: true
+          tags: bandstand:ci
+          build-args: |
+            BANDSTAND_VERSION=${{ steps.version.outputs.value }}
+            BANDSTAND_REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.value }}
+        run: sh scripts/smoke-test.sh bandstand:ci
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f -v bandstand-smoke || true

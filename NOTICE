@@ -1,0 +1,39 @@
+Bandstand
+Copyright (C) 2026 Simon Keyser Petty
+
+Except for the mascot artwork described below, Bandstand is available under
+AGPL-3.0-or-later:
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+The full licence is in LICENSE.
+
+Exceptions: mascot characters and artwork
+
+The Bones (cat bandleader), Bonito (guest cat) and Pinch characters, including
+their names, designs and the following artwork files, are NOT covered by the
+AGPL:
+
+- client/src/components/Bones.tsx
+- client/src/components/Bonito.tsx
+- client/src/lib/bonito.ts
+- client/public/icons/ (all files)
+- client/public/apple-touch-icon.png
+- client/public/favicon.svg
+
+Any other file that depicts these characters is also excluded from the AGPL.
+
+Copyright (C) 2026 Simon Keyser Petty. All rights reserved, except that anyone may run
+and redistribute these characters and artwork unmodified as part of Bandstand,
+or as part of a build of Bandstand that keeps the name Bandstand. A fork
+published under another name must remove or replace them.
+
+See TRADEMARKS.md for the rules on names and presenting a version as official.

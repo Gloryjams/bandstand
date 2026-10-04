@@ -1,0 +1,24 @@
+[project]
+name = "bandstand-server"
+version = "0.1.0"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "watchdog>=4.0",
+  "pypdf>=4.3",
+  "Pillow>=10.4",
+  "mutagen>=1.47",
+  "pymupdf>=1.24",
+  "python-multipart>=0.0.9",
+  "sse-starlette>=2.1",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "httpx>=0.27", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["server*"]

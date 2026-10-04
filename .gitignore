@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local data (NEVER commit)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.key
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+
+# Build outputs
+server/static/app/
+server/static/guest/
+server/static/charts/
+server/static/room/
+
+# local playtest scratch (playwright driver + node_modules)
+.playtest/
+.venv-mac/
+
+# Folders the docs tell people to create next to docker-compose.yml. They hold
+# real libraries and real keys.
+bandstand-backup*/
+bandstand-data/
+dev-data/
+
+# Your own additions to the Docker setup (chart editor, a data folder of your
+# choice). Docker reads it automatically and an update never replaces it.
+docker-compose.override.yml

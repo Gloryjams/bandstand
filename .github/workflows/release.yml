@@ -1,0 +1,75 @@
+name: Release
+
+# A tag named vX.Y.Z builds the image for that version and publishes it to the
+# GitHub Container Registry of this repository. See RELEASING.md.
+#
+# The only credential is the GITHUB_TOKEN that GitHub creates for each run.
+# No secret has to be configured.
+#
+# Actions are pinned by commit. The image is built without a cache, so a release
+# never contains a layer left over from an earlier build, and it carries a
+# provenance record and a list of its contents (SBOM).
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    name: Build and publish the image
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: tests
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: The tag must match the version in server/pyproject.toml
+        id: version
+        run: |
+          set -euo pipefail
+          declared=$(python3 -c "import tomllib;print(tomllib.load(open('server/pyproject.toml','rb'))['project']['version'])")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$declared" != "$tag" ]; then
+            echo "::error::Tag v$tag does not match the version in server/pyproject.toml ($declared)."
+            exit 1
+          fi
+          echo "value=$declared" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (amd64 and arm64)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.version.outputs.image }}:${{ steps.version.outputs.value }}
+            ${{ steps.version.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          build-args: |
+            BANDSTAND_VERSION=${{ steps.version.outputs.value }}
+            BANDSTAND_REVISION=${{ github.sha }}
+          no-cache: true
+          provenance: mode=max
+          sbom: true
