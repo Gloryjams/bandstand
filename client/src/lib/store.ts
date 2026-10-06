@@ -12,7 +12,11 @@ interface UiState {
   chartEditor: ChartEditorState;
   bands: BandPairing[];
   activeBandId: string | null;
+  storagePersisted: boolean;
+  homeScreenHint: boolean;
   setBands: (bands: BandPairing[], activeBandId: string | null) => void;
+  setStoragePersisted: (kept: boolean) => void;
+  setHomeScreenHint: (show: boolean) => void;
   setIdentity: (i: Identity | null) => void;
   setChartEditor: (state: ChartEditorState) => void;
   setOnline: (on: boolean) => void;
@@ -31,7 +35,11 @@ export const useUi = create<UiState>((set) => ({
   chartEditor: null,
   bands: [],
   activeBandId: null,
+  storagePersisted: false,
+  homeScreenHint: false,
   setBands: (bands, activeBandId) => set({ bands, activeBandId }),
+  setStoragePersisted: (storagePersisted) => set({ storagePersisted }),
+  setHomeScreenHint: (homeScreenHint) => set({ homeScreenHint }),
   setIdentity: (identity) => set({ identity }),
   setChartEditor: (chartEditor) => set({ chartEditor }),
   setOnline: (on) => set({ online: on }),

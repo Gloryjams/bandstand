@@ -48,6 +48,9 @@ export function Pairing() {
         link, you see which band it is for and confirm before this device is signed
         in. With a key, or on your own server, enter the details below.
       </p>
+      <p className="pairing-hint">
+        Lost your sign-in? Open the sign-in link your bandleader sent you again, or ask them for a new one.
+      </p>
       <label>
         Server URL
         <input value={url} onChange={(e) => setUrl(e.target.value)}

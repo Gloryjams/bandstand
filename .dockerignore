@@ -3,6 +3,11 @@
 # which is the safe way round for a repository whose working copies sit next to
 # real data and keys.
 *
+!LICENSE
+!NOTICE
+!TRADEMARKS.md
+!THIRD-PARTY-NOTICES.md
+!licenses/
 
 # --- Server: source, migrations, and the two files that describe it ------------
 !server/
@@ -36,6 +41,17 @@ client/*
 !client/tsconfig.*.json
 !client/vite.config.ts
 !client/vite.*.config.ts
+
+# --- Bundled chart editor ----------------------------------------------------
+!charts/
+charts/*
+!charts/src/
+!charts/public/
+!charts/index.html
+!charts/package.json
+!charts/package-lock.json
+!charts/tsconfig.json
+!charts/vite.config.ts
 
 # --- Second layer: never data, never secrets, wherever they turn up -------------
 # These also apply inside the folders admitted above.

@@ -12,6 +12,17 @@ export type ChartEditorState = boolean | null;
 
 const KV_KEY = "chart_editor";
 
+/** Signing out of a band also forgets the editor sign-in inherited from it.
+ * Explicitly connected editors and other bands' data remain the user's work. */
+export function forgetLinkedChartEditor(bandId: string): void {
+  try {
+    const config = JSON.parse(localStorage.getItem("saltycharts.bandstand.v1") ?? "null");
+    if (config?.readerBandId === bandId) {
+      localStorage.setItem("saltycharts.bandstand.v1", JSON.stringify({ url: "", key: "" }));
+    }
+  } catch { /* no editor sign-in on this browser */ }
+}
+
 /** Same-origin address of the editor on the active server. */
 export function chartEditorUrl(): string {
   return `${getApiConfig()?.baseUrl ?? ""}/charts/`;

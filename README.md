@@ -2,12 +2,21 @@
 
 A sheet music reader and gig book for working musicians, that you run yourself.
 
-Put your charts on a computer you own. Read them on a tablet on stage. Build
+Create chord charts in the included SaltyCharts editor, or add your PDFs. Keep them on a computer you own. Read them on a tablet on stage. Build
 setlists, mark up pages, loop the hard bar of a recording at half speed. Share the
 book with your band, each member with their own sign-in. No account with anybody,
 no subscription, nothing stored on somebody else's computer.
 
+See [make a chart, share the book](docs/CHARTS-WALKTHROUGH.md) for the included
+editor and the same chart in a member's reader.
+
 ## What it does
+
+**Creating charts**
+
+- Write chord charts, pocket charts and setlists in the included editor
+- Director edits sync into the band library so members can read the same book
+- Transpose and print parts for different instruments
 
 **Reading**
 
@@ -58,6 +67,7 @@ its own key. Two bands are two servers, and they share nothing.
 | --- | --- |
 | `server/` | Python 3.12, FastAPI, SQLite. Serves the API and the built web app |
 | `client/` | React and TypeScript, built with Vite. An installable web app |
+| `charts/` | SaltyCharts editor, React and TypeScript; built into `/charts/` |
 | `docs/` | The self-hosting guide |
 | `Dockerfile`, `docker-compose.yml` | The packaged server |
 
@@ -75,6 +85,10 @@ ends.
 
 ## Quick start
 
+This source targets 0.2.0. The release image must be published and public before
+it can be downloaded. Until then, build this checkout with
+`docker compose up -d --build`; the editor is included in that build.
+
 Get Bandstand from [GitHub](https://github.com/gloryjams/bandstand). For a ZIP,
 choose **Code, Download ZIP** on that page, or choose a version on the
 [releases page](https://github.com/gloryjams/bandstand/releases).
@@ -87,7 +101,7 @@ cd bandstand
 docker compose up -d
 ```
 
-Compose uses `ghcr.io/gloryjams/bandstand:0.1.0` by default. Set
+Compose uses `ghcr.io/gloryjams/bandstand:0.2.0` by default. Set
 `BANDSTAND_VERSION` to choose another numbered tag. It uses a cached copy if present,
 otherwise tries to download the image and builds from this folder if the image
 is missing. To build from source yourself, use `docker compose up -d --build`.
@@ -132,6 +146,7 @@ Tests:
 
 ```
 (cd client && npx vitest run && npm run build && npm run check:copy)
+(cd charts && npm ci && npm test && npm run build:bandstand)
 (cd server && .venv/bin/python -m pytest -q)
 python3 scripts/check-public-tree.py
 ```
@@ -145,9 +160,13 @@ Releases are described in [RELEASING.md](RELEASING.md).
 
 ## The chart editor
 
-Bandstand can carry SaltyCharts, a chord chart editor, at `/charts/`. It is a
-separate project and optional, and is not available for download yet. See
-"Adding the chart editor" in the self-hosting guide.
+SaltyCharts ships with Bandstand in both the Docker image and source install.
+Sign in as a director and choose **New chart**. On the same server and browser,
+the editor uses your current sign-in automatically. When opening it on a new
+device or from a reader on another origin, enter this band's director key once
+in **Bandstand sync**. New charts and later edits enter the band library and
+appear on connected members' devices. Members keep read access to the book;
+authoring requires a director key.
 
 ## Licence
 

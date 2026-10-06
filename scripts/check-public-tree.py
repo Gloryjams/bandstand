@@ -65,6 +65,9 @@ def load_patterns() -> tuple[list[re.Pattern], dict[str, list[re.Pattern]]]:
 
 
 def is_prose(path: Path) -> bool:
+    # Preserve third-party legal texts verbatim, including their punctuation.
+    if path.is_relative_to(REPO / "licenses"):
+        return False
     return path.suffix in PROSE_SUFFIXES or path.name in PROSE_NAMES
 
 

@@ -28,6 +28,7 @@ export function Settings() {
   const activeBandId = useUi((s) => s.activeBandId);
   const activeBand = bands.find((b) => b.id === activeBandId);
   const online = useUi((s) => s.online);
+  const storagePersisted = useUi((s) => s.storagePersisted);
   const nav = useNavigate();
   const [health, setHealth] = useState<Health>(null);
   const [checking, setChecking] = useState(true);
@@ -206,6 +207,11 @@ export function Settings() {
               <span className="k">Cached on this device</span>
               <span className="v">{storage ? `${mb(storage.used)} / ${mb(storage.quota)}` : "unknown"}</span>
             </div>
+            <p className="settings-hint">
+              {storagePersisted
+                ? "This device keeps your sign-in and charts."
+                : "This browser may clear Bandstand's data if you do not open it for a while. Add it to your Home Screen to keep it."}
+            </p>
           </div>
         </section>
 
