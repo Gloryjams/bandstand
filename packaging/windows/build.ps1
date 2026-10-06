@@ -5,6 +5,9 @@ $dist = Join-Path $PSScriptRoot 'dist'
 $cache = Join-Path $PSScriptRoot 'build-cache'
 $scratch = Join-Path $PSScriptRoot '.tmp'
 $stage = Join-Path $scratch 'Bandstand'
+if ($SkipWebBuild -and $env:GITHUB_ACTIONS -ne 'true') {
+    throw '-SkipWebBuild is only for CI artifacts from the same run. Build the web bundles for a local package.'
+}
 
 function Check-Exit([string]$Message) {
     if ($LASTEXITCODE -ne 0) { throw $Message }

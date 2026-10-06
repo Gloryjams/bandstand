@@ -4,9 +4,9 @@ if (-not $Zip) { $Zip = (Get-ChildItem (Join-Path $PSScriptRoot 'dist') -Filter 
 if (-not $Zip) { throw 'Build the Windows ZIP first.' }
 $work = Join-Path $env:TEMP ("Bandstand verify " + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $work | Out-Null
-Expand-Archive -LiteralPath $Zip -DestinationPath (Join-Path $work 'first app')
-$root = Join-Path $work 'first app\Bandstand'
-$data = Join-Path $work 'user book'
+Expand-Archive -LiteralPath $Zip -DestinationPath (Join-Path $work 'first app [test]')
+$root = Join-Path $work 'first app [test]\Bandstand'
+$data = Join-Path $work 'user profile [test]\Bandstand'
 $stdout = Join-Path $work 'launch.out.txt'
 $stderr = Join-Path $work 'launch.err.txt'
 $proc = $null
@@ -20,19 +20,28 @@ function Check([bool]$OK, [string]$Label) {
 function Stop-Owned {
     Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object { $_.ExecutablePath -eq (Join-Path $root 'runtime\python.exe') -or
-            ($_.Name -eq 'powershell.exe' -and $_.CommandLine -like "*$(Join-Path $root 'app\ready.ps1')*") } |
+            ($_.Name -eq 'powershell.exe' -and $_.CommandLine -and
+             ($_.CommandLine.Contains((Join-Path $root 'app\ready.ps1')) -or
+              $_.CommandLine.Contains((Join-Path $root 'app\launcher.ps1')))) } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     if ($proc) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Milliseconds 500
 }
-function Start-Owned {
-    $script:proc = Start-Process -PassThru powershell.exe `
-        -ArgumentList '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$(Join-Path $root 'app\launcher.ps1')`"",'-NoBrowser','-DataDir',"`"$data`"" `
-        -WorkingDirectory $root -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+function Start-Owned([switch]$DefaultFolder, [switch]$Wifi) {
+    $entry = if ($Wifi) { 'Share Bandstand on Wi-Fi.bat' } else { 'Start Bandstand.bat' }
+    $options = '-NoBrowser'
+    if (-not $DefaultFolder) { $options += " -DataDir `"$data`"" }
+    $previousAppData = $env:LOCALAPPDATA
+    try {
+        if ($DefaultFolder) { $env:LOCALAPPDATA = Split-Path $data }
+        $script:proc = Start-Process -PassThru cmd.exe `
+            -ArgumentList '/d','/s','/c',"`"`"$(Join-Path $root $entry)`" $options`"" `
+            -WorkingDirectory $root -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    } finally { $env:LOCALAPPDATA = $previousAppData }
     for ($i = 0; $i -lt 200; $i++) {
-        if (Test-Path (Join-Path $data '.launch.json')) {
-            $launch = Get-Content (Join-Path $data '.launch.json') -Raw | ConvertFrom-Json
-            if (Test-Path (Join-Path $data '.key')) {
+        if (Test-Path -LiteralPath (Join-Path $data '.launch.json')) {
+            $launch = Get-Content -LiteralPath (Join-Path $data '.launch.json') -Raw | ConvertFrom-Json
+            if (Test-Path -LiteralPath (Join-Path $data '.key')) {
                 $key = [IO.File]::ReadAllText((Join-Path $data '.key')).Trim()
                 try {
                     $manifest = Invoke-RestMethod "http://127.0.0.1:$($launch.port)/api/manifest" -Headers @{'X-Bandstand-Key'=$key} -TimeoutSec 1
@@ -47,7 +56,8 @@ function Start-Owned {
 }
 try {
     try { $busy = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any, 7800); $busy.Start() } catch { $busy = $null }
-    $first = Start-Owned
+    $first = Start-Owned -DefaultFolder
+    Check (Test-Path -LiteralPath (Join-Path $data 'library.db')) 'double-click entrypoint uses the default data folder'
     $port = $first.launch.port
     $base = "http://127.0.0.1:$port"
     $headers = @{'X-Bandstand-Key'=$first.key}
@@ -83,14 +93,21 @@ try {
     finally { if ($reader) { $reader.Dispose() }; $stream.Dispose() }
     Check (-not $output.Contains($first.key) -and $output -notmatch '#.*key=') 'the launcher never prints a sign-in key'
     Stop-Owned
-    Expand-Archive -LiteralPath $Zip -DestinationPath (Join-Path $work 'updated app')
-    $root = Join-Path $work 'updated app\Bandstand'
+    Expand-Archive -LiteralPath $Zip -DestinationPath (Join-Path $work 'updated app [test]')
+    $root = Join-Path $work 'updated app [test]\Bandstand'
     $updated = Start-Owned
     Check ($updated.key -eq $first.key -and $updated.manifest.setlists.name -contains 'My saved set') 'a replacement app preserves the sign-in and user book'
     Stop-Owned
     $data = Join-Path $work 'second user book'
     $second = Start-Owned
     Check ($second.key -ne $first.key -and $second.manifest.setlists.name -notcontains 'My saved set') 'a new book gets a different key and isolated data'
+    Stop-Owned
+    $wifi = Start-Owned -Wifi
+    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $wifi.launch.port, $wifi.launch.publicPort)
+    Check ($listeners.Count -eq 2 -and @($listeners | Where-Object LocalAddress -ne '0.0.0.0').Count -eq 0) 'Wi-Fi entrypoint listens on the network only when requested'
+    Check ($wifi.key -eq $second.key) 'Wi-Fi sharing keeps the same book and sign-in'
+    Stop-Owned
+    $second = Start-Owned
     if ($KeepForBrowser) {
         $keep = $true
         @{root=$root; data=$data; port=$second.launch.port; publicPort=$second.launch.publicPort; work=$work; launcherPid=$proc.Id} |

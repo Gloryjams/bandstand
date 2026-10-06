@@ -25,6 +25,8 @@ Your book and daily backups live in `%LOCALAPPDATA%\Bandstand`, outside the app
 folder. Updating the app opens the same book. Close Bandstand and back up the
 whole data folder before updating. Keep the older app until you have checked
 your book with the new version.
+If the update upgrades the database, return to an older app by restoring the
+data-folder backup you made before updating.
 
 If the release has no Windows ZIP yet, the download is still being prepared.
 You can build it using [the Windows packaging instructions](../packaging/windows/README.md),

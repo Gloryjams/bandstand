@@ -22,6 +22,8 @@ Close Bandstand, back up your whole data folder, and extract the new ZIP
 into a new folder. Run Start Bandstand there. It opens the same book.
 The data folder is separate from the app; replacing the app does not reset it.
 Keep the older app until you have checked your book with the new version.
+If an update changes the database, returning to an older app also requires
+restoring your pre-update data-folder backup.
 
 TABLET ON YOUR WI-FI
 Close Bandstand first, then open Share Bandstand on Wi-Fi. Both devices

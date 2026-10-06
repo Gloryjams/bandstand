@@ -15,9 +15,9 @@ Node 22. From the repository root in PowerShell:
 ```
 
 The download and its checksum are in `packaging/windows/dist/`. These are build
-outputs and are not committed. `-SkipWebBuild` uses the bundles already built in
-this checkout; CI downloads the reader and editor artifacts built by the same
-run before using that option. Do not copy bundles from another working tree.
+outputs and are not committed. `-SkipWebBuild` is restricted to CI, which downloads
+the reader and editor artifacts built by the same run before using that option.
+Local builds always build both web bundles from the current source.
 
 Python's Windows runtime is pinned by version and the SHA-256 checksum from its
 [official release page](https://www.python.org/downloads/release/python-31316/).
@@ -37,7 +37,8 @@ members. The build key is removed and checked against every file before zipping.
 Each new user book gets its own key at launch. No real library is read.
 
 The audit reads every file, including binaries and the nested source archive.
-The verification script extracts into a new folder with spaces, checks the real
+The verification script extracts into a new folder with spaces and brackets, starts
+both real double-click entrypoints, verifies the default data folder, checks the real
 server and guest reader, reserves a busy port, confirms ordinary startup is
 loopback-only, then replaces the app and verifies the user's book survives.
 A second data folder must have a different key and no data from the first.

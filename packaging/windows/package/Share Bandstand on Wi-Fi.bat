@@ -5,5 +5,5 @@ if not exist "%~dp0app\launcher.ps1" (
   pause
   exit /b 1
 )
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0app\app\launcher.ps1" -ShareOnWifi
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0app\launcher.ps1" -ShareOnWifi %*
 if errorlevel 1 pause
