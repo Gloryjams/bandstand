@@ -69,6 +69,10 @@ function Start-Owned([switch]$DefaultFolder, [switch]$Wifi) {
     throw 'The packaged server did not become ready.'
 }
 try {
+    # Audit a fresh extraction of the finished ZIP before any app is started.
+    # The builder separately checks that its temporary seed key was removed.
+    & (Join-Path $root 'runtime\python.exe') (Join-Path $PSScriptRoot 'audit-package.py') $root
+    Check ($LASTEXITCODE -eq 0) 'the finished ZIP passes the full package audit'
     try { $busy = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any, 7800); $busy.Start() } catch { $busy = $null }
     $first = Start-Owned -DefaultFolder
     Check (Test-Path -LiteralPath (Join-Path $data 'library.db')) 'double-click entrypoint uses the default data folder'
