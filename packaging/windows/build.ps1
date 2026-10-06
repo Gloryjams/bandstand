@@ -54,7 +54,7 @@ try {
     $text = [IO.File]::ReadAllText($pth.FullName).Replace('#import site', "..\app`r`nLib\site-packages`r`nimport site")
     [IO.File]::WriteAllText($pth.FullName, $text, [Text.Encoding]::ASCII)
     $site = Join-Path $runtime 'Lib\site-packages'
-    & $BuildPython -m pip install --disable-pip-version-check --require-hashes --no-compile `
+    & $BuildPython -m pip install --disable-pip-version-check --require-hashes --no-compile --ignore-installed `
         --only-binary=:all: --platform win_amd64 --implementation cp --python-version 3.13 --abi cp313 `
         --target $site -r (Join-Path $PSScriptRoot 'requirements-windows.lock')
     Check-Exit 'Pinned Windows dependency install failed.'

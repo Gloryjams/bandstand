@@ -78,7 +78,9 @@ try {
     Invoke-RestMethod "$base/api/sync" -Method Post -ContentType 'application/json' -Headers $headers `
         -Body (@{ops=@(@{op='upsert'; entity='setlists'; payload=@{id='01KUSERTESTSETLIST0000000';name='My saved set'}})} | ConvertTo-Json -Depth 8) | Out-Null
     Start-Sleep -Milliseconds 500
-    $output = [IO.File]::ReadAllText($stdout)
+    $stream = [IO.File]::Open($stdout, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    try { $reader = [IO.StreamReader]::new($stream); $output = $reader.ReadToEnd() }
+    finally { if ($reader) { $reader.Dispose() }; $stream.Dispose() }
     Check (-not $output.Contains($first.key) -and $output -notmatch '#.*key=') 'the launcher never prints a sign-in key'
     Stop-Owned
     Expand-Archive -LiteralPath $Zip -DestinationPath (Join-Path $work 'updated app')
