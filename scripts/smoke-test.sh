@@ -12,7 +12,7 @@ set -eu
 
 image="${1:?usage: smoke-test.sh <image>}"
 port="${SMOKE_PORT:-7800}"
-name="bandstand-smoke"
+name="${SMOKE_NAME:-bandstand-smoke}"
 base="http://127.0.0.1:${port}"
 
 say() { printf '%s\n' "$*"; }
@@ -63,9 +63,17 @@ esac
 
 charts=$(curl -s "$base/charts/")
 case "$charts" in
-    *"chart editor is not installed"*) ;;
-    *) fail "an image built without the chart editor serves something at /charts/" ;;
+    *'id="root"'*) ;;
+    *) fail "the included chart editor is not served at /charts/" ;;
 esac
+case "$health" in
+    *'"chart_editor":true'*) ;;
+    *) fail "health does not report the included editor" ;;
+esac
+[ "$(code "$base/api/charts")" = "401" ] || fail "editor library is readable without a key"
+[ "$(code -H 'Content-Type: application/json' -d '{}' "$base/api/upload-chart")" = "401" ] \
+    || fail "chart authoring accepts a request without a director key"
+[ "$(code "$base/charts/.env.bandstand")" = "404" ] || fail "an editor environment file was served"
 
 # An upload with no key is refused before it is stored anywhere.
 blob=$(mktemp)
@@ -76,6 +84,8 @@ rm -f "$blob"
 
 # Non-root, key private, key never logged.
 [ "$(docker exec "$name" id -u)" = "1000" ] || fail "the server does not run as user 1000"
+docker exec "$name" sh -c 'test -s /app/LICENSE && test -s /app/NOTICE && test -s /app/THIRD-PARTY-NOTICES.md' \
+    || fail "the image is missing its licence notices"
 [ "$(docker exec "$name" stat -c '%a' /data/.key)" = "600" ] || fail "the key is not private"
 docker logs "$name" 2>&1 | docker exec -i "$name" python -c \
     "import sys; k=open('/data/.key').read().strip(); sys.exit(1 if k in sys.stdin.read() else 0)" \

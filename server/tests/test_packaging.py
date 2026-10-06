@@ -116,21 +116,18 @@ def test_the_ignore_file_is_an_allow_list_at_every_level():
         if l.strip() and not l.startswith("#")
     ]
     assert lines[0] == "*"
-    for folder in ("server", "server/api", "server/ingest", "server/migrations", "client"):
+    for folder in ("server", "server/api", "server/ingest", "server/migrations", "client", "charts"):
         assert f"{folder}/*" in lines, f"everything in {folder}/ is admitted"
         assert lines.index(f"!{folder}/") < lines.index(f"{folder}/*")
 
 
-def test_the_chart_editor_is_an_explicit_switch():
+def test_the_chart_editor_is_built_from_the_same_tree_by_default():
     text = DOCKERFILE.read_text()
-    assert re.search(r"^ARG WITH_CHARTS=0$", text, re.M)
+    assert "WITH_CHARTS" not in text
     charts_stage = text.split(" AS charts", 1)[1].split("\nFROM ", 1)[0]
-    assert "ARG WITH_CHARTS" in charts_stage
-    assert "${WITH_CHARTS}" in charts_stage
-    override = yaml.safe_load((REPO / "docker-compose.charts.yml").read_text())
-    build = override["services"]["bandstand"]["build"]
-    assert build["args"]["WITH_CHARTS"] == "1"
-    assert "saltycharts" in build["additional_contexts"]
+    assert "COPY charts/package.json charts/package-lock.json ./" in charts_stage
+    assert "npm run build:bandstand" in charts_stage
+    assert "COPY --from=charts /src/server/static/charts/ /app/server/static/charts/" in text
 
 
 def test_the_runtime_has_no_installer_and_nothing_to_climb_with():

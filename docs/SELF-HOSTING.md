@@ -69,6 +69,9 @@ All the commands below are typed inside that folder.
 
 ## Step 3. Start it
 
+If the 0.2.0 image has not been published publicly yet, use the source build
+`docker compose up -d --build` instead. Both reader and editor are built together.
+
 This is the one command:
 
 ```
@@ -76,7 +79,7 @@ docker compose up -d
 ```
 
 The first time, Docker downloads the ready-made image
-`ghcr.io/gloryjams/bandstand:0.1.0`. It has versions for both ordinary Intel or
+`ghcr.io/gloryjams/bandstand:0.2.0`. It has versions for both ordinary Intel or
 AMD computers (`linux/amd64`) and Apple Silicon Macs and 64-bit Raspberry Pis
 (`linux/arm64`). Docker chooses the right one. The download needs an internet
 connection and can take a few minutes. Later starts reuse the downloaded copy.
@@ -415,7 +418,7 @@ download the new ZIP and copy its contents over the old folder. Your own files,
 they are.
 
 For the published image, set `BANDSTAND_VERSION` in `.env` to the release number
-you want, without the leading `v`, such as `0.1.0`. See "Settings" below if you
+you want, without the leading `v`, such as `0.2.0`. See "Settings" below if you
 have not made that file yet. A numbered tag stays on that version until you
 change it. The tag `latest` follows the newest release and is also pulled each
 time you run `docker compose up`. If you set `BANDSTAND_IMAGE`, change its full
@@ -492,7 +495,7 @@ The ones most people use:
 | --- | --- | --- |
 | `BANDSTAND_NAME` | The band name shown in the app | Bandstand |
 | `BANDSTAND_PORT` | The number after the colon in the address | 7800 |
-| `BANDSTAND_VERSION` | The published image tag to run | 0.1.0 |
+| `BANDSTAND_VERSION` | The published image tag to run | 0.2.0 |
 | `BANDSTAND_MAX_UPLOAD_MB` | Largest file you can upload | 50 |
 | `BANDSTAND_LIBRARY_QUOTA_MB` | Ceiling for the whole library, 0 means none | 0 |
 | `BANDSTAND_ROOMS` | Switches rehearsal rooms on, see "Rehearsal rooms" | off |
@@ -546,33 +549,20 @@ Then type `docker compose up -d` inside that folder. The second band has its own
 data, its own key and its own address (ending in `:7801`). The two bands cannot see
 each other's charts.
 
-## Adding the chart editor
+## Create a chord chart
 
-Bandstand can include a chord chart editor called SaltyCharts. It is a separate
-project, so it is not included unless you ask for it. Without it, the app does
-not offer "New chart", the address `/charts/` shows a page saying the editor is
-not installed, and everything else works normally.
+SaltyCharts is included with Bandstand. Sign in as a director and choose **New
+chart**. The editor uses your current sign-in when the reader and editor are on
+the same server and browser. On another device, or when the reader lives on
+another origin, enter the band's director key once under **Bandstand sync**.
 
-SaltyCharts is not available for download yet. If you already have a copy, you
-can include it with these steps:
+Make a chart and wait for **Synced with Bandstand**. It appears in the band's
+library; members can read it with their own sign-in. Later edits update the same
+chart. If a connection drops, edits remain on the device until it reconnects.
 
-1. Put the SaltyCharts source folder next to the Bandstand folder, named
-   `saltycharts`.
-2. In the Bandstand folder, copy the file `docker-compose.charts.yml` to a new file
-   named `docker-compose.override.yml`. Do not change anything in it.
-3. Type:
-
-   ```
-   docker compose up -d --build
-   ```
-
-The new file is yours. An update of Bandstand does not touch it. Keep using the
-source build command in "Update" so the editor stays included; the published
-image does not contain it. To update the editor itself, update the `saltycharts`
-folder and run the command from step 3 again.
-
-To remove the editor, delete `docker-compose.override.yml` and run the same
-command.
+No extra checkout, build flag or Compose override is needed. If **New chart** is
+unavailable on a source install, build `charts/` as well as `client/` using the
+commands in "Without Docker" below.
 
 ## Share links (optional, advanced)
 
@@ -667,7 +657,7 @@ it prints. Check with `docker buildx version`, then start again.
 **"pull access denied", "denied", or "manifest unknown" when downloading the image**
 These are not expected for the public image. Check your internet connection and
 the image settings in `.env`. The default is
-`ghcr.io/gloryjams/bandstand:0.1.0`. `BANDSTAND_VERSION` must name a published
+`ghcr.io/gloryjams/bandstand:0.2.0`. `BANDSTAND_VERSION` must name a published
 tag without a leading `v`; `BANDSTAND_IMAGE`, if set, replaces the whole name and
 tag. Try `docker compose pull bandstand` again. If the name and tag are right,
 the package may not yet be public or the tag may not have been published.
@@ -803,6 +793,9 @@ On a Mac or on Linux:
 cd client
 npm ci
 npm run build
+cd ../charts
+npm ci
+npm run build:bandstand
 cd ../server
 python3.12 -m venv .venv
 .venv/bin/pip install --require-hashes -r requirements.lock
@@ -818,6 +811,9 @@ On Windows, in PowerShell:
 cd client
 npm ci
 npm run build
+cd ..\charts
+npm ci
+npm run build:bandstand
 cd ..\server
 py -3.12 -m venv .venv
 .venv\Scripts\pip install --require-hashes -r requirements.lock

@@ -4,34 +4,13 @@
 #
 #   docker build -t bandstand .
 #
-# With the optional chart editor (SaltyCharts, a separate repository):
-#
-#   docker build -t bandstand --build-arg WITH_CHARTS=1 \
-#       --build-context saltycharts=../saltycharts .
-#
-# The extra context may be a source checkout (it is built here) or a folder that
-# already holds a built bundle (it is copied, without hidden files). WITH_CHARTS
-# is the switch: without it the editor is left out whatever the context holds, and
-# /charts explains that the editor is not installed.
+# The reader and SaltyCharts editor are built from this repository together.
 
 # Everything the image is built from is pinned by digest, so the same commit gives
 # the same image tomorrow. The tag is kept for the reader; the digest is what is
 # used. Dependabot proposes the bumps (.github/dependabot.yml).
 ARG NODE_IMAGE=node:22-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e
-ARG WITH_CHARTS=0
-
-# --- Optional chart editor input ---------------------------------------------
-# Replaced by --build-context saltycharts=... when the editor is wanted. The
-# stand-in holds one marker file and must not be left empty. With an empty stage
-# here, the builder (BuildKit 0.27) reused a cached copy of a real editor for a
-# build that supplied none, and afterwards kept serving that first copy whatever
-# the context held. With the marker file every change of the context is seen.
-FROM scratch AS saltycharts
-COPY <<EOF /.chart-editor-not-supplied
-No chart editor was supplied to this build.
-EOF
-
 # --- Stage 1a: client bundles (app, guest, room) -------------------------------
 # $BUILDPLATFORM: the output is plain JS and CSS, so a multi-platform build
 # compiles it once on the native builder instead of once per target under emulation.
@@ -48,41 +27,15 @@ RUN npm run build \
  && test -f /src/server/static/guest/guest.js \
  && test -f /src/server/static/room/room.html
 
-# --- Stage 1b: chart editor bundle (optional) ----------------------------------
+# --- Stage 1b: bundled chart editor -------------------------------------------
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS charts
 ENV CI=1 npm_config_update_notifier=false
-# Part of the cache key on purpose: a build without WITH_CHARTS=1 never ships an
-# editor, whatever an earlier build left in the cache.
-ARG WITH_CHARTS
-# The editor's own build script writes to ../bandstand/server/static/charts, so the
-# source sits at /src/saltycharts and its output lands in /src/bandstand.
-WORKDIR /src/saltycharts
-COPY --from=saltycharts / ./
-RUN set -eu; \
-    mkdir -p /out/charts; \
-    case "${WITH_CHARTS}" in \
-        1) ;; \
-        0|"") echo "Chart editor: not asked for. /charts will say it is not installed."; exit 0 ;; \
-        *) echo "WITH_CHARTS must be 0 or 1, got: ${WITH_CHARTS}"; exit 1 ;; \
-    esac; \
-    if [ -f package.json ]; then \
-        echo "Chart editor: building from source"; \
-        rm -rf node_modules; \
-        npm ci --no-audit --no-fund; \
-        npm run build:bandstand; \
-        cp -R /src/bandstand/server/static/charts/. /out/charts/; \
-    elif [ -f index.html ]; then \
-        echo "Chart editor: using the supplied bundle"; \
-        # Visible entries only. A bundle folder that came from a working copy can
-        # hold a .git folder or a credentials file, and /charts is served keyless.
-        find . -mindepth 1 -maxdepth 1 ! -name '.*' -exec cp -R -t /out/charts/ {} + ; \
-    else \
-        echo "WITH_CHARTS=1, but no chart editor was supplied."; \
-        echo "Add: --build-context saltycharts=<folder with the source or a built bundle>"; \
-        exit 1; \
-    fi; \
-    find /out/charts -mindepth 1 -name '.*' -prune -exec rm -rf {} +; \
-    test -f /out/charts/index.html
+WORKDIR /src/charts
+COPY charts/package.json charts/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY charts/ ./
+RUN npm run build:bandstand \
+ && test -f /src/server/static/charts/index.html
 
 # --- Stage 2a: Python dependencies ---------------------------------------------
 FROM ${PYTHON_IMAGE} AS deps
@@ -130,6 +83,8 @@ RUN groupadd --gid ${BANDSTAND_GID} bandstand \
  && find / -xdev -type f -perm /6000 -exec chmod a-s {} +
 
 WORKDIR /app
+COPY LICENSE NOTICE TRADEMARKS.md THIRD-PARTY-NOTICES.md /app/
+COPY licenses/ /app/licenses/
 COPY --from=deps /opt/venv /opt/venv
 # The application stays owned by root and read-only to the server process.
 # Named one by one: only source reaches the image, never a stray file that was
@@ -139,7 +94,7 @@ COPY server/api/*.py /app/server/api/
 COPY server/ingest/*.py /app/server/ingest/
 COPY server/migrations/*.sql /app/server/migrations/
 COPY --from=client /src/server/static/ /app/server/static/
-COPY --from=charts /out/charts/ /app/server/static/charts/
+COPY --from=charts /src/server/static/charts/ /app/server/static/charts/
 
 # Numeric, so an orchestrator can verify "runs as non-root" without a passwd lookup.
 USER ${BANDSTAND_UID}:${BANDSTAND_GID}

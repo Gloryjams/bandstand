@@ -49,6 +49,7 @@ Version numbers are three numbers, `MAJOR.MINOR.PATCH`:
 
    ```
    (cd client && npm ci && npx vitest run && npm run build && npm run check:copy)
+   (cd charts && npm ci && npm test && npm run build:bandstand)
    (cd server && python -m pytest -q)
    python3 scripts/check-public-tree.py
    docker build --no-cache -t bandstand:candidate .
@@ -82,7 +83,7 @@ Pushing a tag named `vX.Y.Z` starts `.github/workflows/release.yml`:
    `ghcr.io/gloryjams/bandstand:latest`. The image carries a provenance record
    and a list of its contents.
 
-Pre-release tags such as `v0.1.0-rc1` are informal markers. The release workflow
+Pre-release tags such as `v0.2.0-rc1` are informal markers. The release workflow
 only builds tags in the form `vX.Y.Z`, and refuses a tag whose version differs
 from `server/pyproject.toml`. An `rc` tag does not publish an image.
 
@@ -101,11 +102,11 @@ The public source is [gloryjams/bandstand](https://github.com/gloryjams/bandstan
 ZIP downloads are under **Code, Download ZIP** there, or on the
 [releases page](https://github.com/gloryjams/bandstand/releases).
 
-Compose defaults to `ghcr.io/gloryjams/bandstand:0.1.0`. A self-hoster chooses
+Compose defaults to `ghcr.io/gloryjams/bandstand:0.2.0`. A self-hoster chooses
 a numbered image tag in `.env`:
 
 ```
-BANDSTAND_VERSION=0.1.0
+BANDSTAND_VERSION=0.2.0
 ```
 
 Change that number to the release being installed, then run
@@ -116,7 +117,7 @@ the full image name and tag, taking the place of `BANDSTAND_VERSION`.
 
 Compose keeps both `image` and `build`: for a numbered tag it reuses a cached
 image, otherwise tries to pull it, then builds from source if the image is
-missing. For a source build, including the optional chart editor, update the source and run
+missing. For a source build, including the bundled chart editor, update the source and run
 `docker compose up -d --build`. This forces a build even if an image is present.
 For the exact rules, see Docker's [build specification](https://docs.docker.com/reference/compose-file/build/)
 and [compose up options](https://docs.docker.com/reference/cli/docker/compose/up/).
@@ -157,22 +158,13 @@ when a floating tag comes back.
 
 ## The chart editor
 
-SaltyCharts is a separate repository and is not part of the published image.
-It is not available for download yet. If you already have its source, you can
-build an image that contains it:
+SaltyCharts is included in `charts/`, under the repository licence and artwork
+exceptions in NOTICE. Every normal Docker build includes it. Source installs
+also run `(cd charts && npm ci && npm run build:bandstand)`.
 
-```
-docker build -t bandstand --build-arg WITH_CHARTS=1 \
-    --build-context saltycharts=../saltycharts .
-```
-
-The extra context can be a source checkout (it is built inside the image build, with
-its own `build:bandstand` script) or a folder that already holds a built bundle.
-Hidden files in a bundle folder are left out.
-
-`WITH_CHARTS=1` is the switch. Without it the editor is left out, whatever the
-context holds. With it and no context, the build stops and says what is missing.
-A self-hoster gets the same through `docker-compose.charts.yml`.
+Version 0.2.0 adds the editor to the reader as one app. The earlier 0.1.0 tag had
+no published release page. Release notes should lead with creating a chart and
+seeing it enter the band's book, and include the sign-in fixes in this tree.
 
 ## Notes for an install that already exists
 

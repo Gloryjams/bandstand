@@ -107,7 +107,7 @@ async def lifespan(app: FastAPI):
         instance_lock.release(lock)
 
 
-# Shown at /charts when the optional chart editor was not built into this install.
+# Shown at /charts in an incomplete source build or an older installation.
 # Self-contained on purpose (inline style, no assets): the bundle that would carry
 # its own styling is exactly the thing that is missing.
 _CHARTS_MISSING_HTML = """<!doctype html>

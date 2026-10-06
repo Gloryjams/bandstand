@@ -7,7 +7,9 @@ import Dexie from "dexie";
 
 import { api, configureApi, getApiConfig } from "./api";
 import { setActiveDb, LEGACY_DB_NAME } from "./db";
+import { requestPersistentStorage, shouldShowHomeScreenHint } from "./device-storage";
 import { checkIdentity } from "./identity";
+import { forgetLinkedChartEditor } from "./chart-editor";
 import { DATA_CHANGED_EVENT } from "./live";
 import {
   loadBandsState, migrateLegacyPairing, removeBand, saveBandsState, upsertBand,
@@ -38,6 +40,11 @@ export async function bootBands(): Promise<BandPairing | null> {
   const band = state.bands.find((b) => b.id === state.activeId) ?? null;
   if (band) activate(band);
   else useUi.getState().setPairing(null);
+  if (state.bands.length > 0) {
+    void requestPersistentStorage();
+    // A browser tab on an iPhone loses its data after a week unused: keep saying so.
+    useUi.getState().setHomeScreenHint(shouldShowHomeScreenHint());
+  }
   return band;
 }
 
@@ -58,6 +65,8 @@ export async function signIn(url: string, key: string): Promise<BandPairing> {
     await saveBandsState(next);
     publish(next);
     activate(band);
+    void requestPersistentStorage();
+    useUi.getState().setHomeScreenHint(shouldShowHomeScreenHint());
     useUi.getState().setIdentity(identity);
     // Home can mount as soon as activate publishes pairing. Notify it once the
     // mirror is ready, just as when switching bands or receiving live updates.
@@ -108,6 +117,7 @@ export async function signOut(id: string): Promise<void> {
   const next = removeBand(state, id);
   await saveBandsState(next);
   publish(next);
+  forgetLinkedChartEditor(id);
   const remaining = next.bands.find((b) => b.id === next.activeId) ?? null;
   if (band && remaining) {
     // Point the active handle at the surviving band FIRST (this closes the departing

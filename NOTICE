@@ -2,7 +2,7 @@ Bandstand
 Copyright (C) 2026 Simon Keyser Petty
 
 Except for the mascot artwork described below, Bandstand is available under
-AGPL-3.0-or-later:
+AGPL-3.0-or-later, including the SaltyCharts editor in charts/:
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
@@ -28,6 +28,9 @@ AGPL:
 - client/public/icons/ (all files)
 - client/public/apple-touch-icon.png
 - client/public/favicon.svg
+- charts/src/ui/Mascot.tsx
+- charts/src/App.tsx (the BonitoHead artwork)
+- charts/public/ (mascot icons)
 
 Any other file that depicts these characters is also excluded from the AGPL.
 
@@ -37,3 +40,8 @@ or as part of a build of Bandstand that keeps the name Bandstand. A fork
 published under another name must remove or replace them.
 
 See TRADEMARKS.md for the rules on names and presenting a version as official.
+
+The included practice charts and synthetic import examples are original exercise
+material distributed under the same AGPL licence. Third-party dependencies retain
+their own licences; see THIRD-PARTY-NOTICES.md. No third-party song collection is
+included.

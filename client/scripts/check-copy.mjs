@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { join, relative } from "node:path";
 
 const STATIC = fileURLToPath(new URL("../../server/static/", import.meta.url));
-const BUNDLES = ["app", "guest", "room"];
+const BUNDLES = process.argv.indexOf("--with-charts") >= 0 ? ["app", "guest", "room", "charts"] : ["app", "guest", "room"];
 const EXTENSIONS = [".js", ".css", ".html", ".json", ".webmanifest"];
 const EM = 0x2014;
 const EN = 0x2013;

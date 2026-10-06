@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { chartEditorUrl, showChartEditorLink } from "../lib/chart-editor";
 import { BandSheet } from "../components/BandSheet";
 import { db } from "../lib/db";
+import { dismissHomeScreenHint, shouldShowHomeScreenHint } from "../lib/device-storage";
 import { DATA_CHANGED_EVENT } from "../lib/live";
 import {
   ROOMS_OFF_HINT, ROOMS_OFF_TEXT, createRoom, roomsStatus, startRoomProblem,
@@ -16,6 +17,7 @@ export function Home() {
   const activeBandId = useUi((s) => s.activeBandId);
   const identity = useUi((s) => s.identity);
   const chartEditor = useUi((s) => s.chartEditor);
+  const homeScreenHint = useUi((s) => s.homeScreenHint);
   const band = bands.find((b) => b.id === activeBandId);
   const [counts, setCounts] = useState({ pieces: 0, sets: 0 });
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
@@ -80,6 +82,17 @@ export function Home() {
           {identity ? `Signed in as ${identity.name}` : "Checking sign-in..."}
         </p>
       </section>
+
+      {homeScreenHint && shouldShowHomeScreenHint() && (
+        <aside className="settings-card" aria-label="Keep Bandstand signed in">
+          <p className="settings-hint">
+            Keep Bandstand signed in: tap Share, then Add to Home Screen, and open it from that icon.
+          </p>
+          <button className="btn" onClick={dismissHomeScreenHint} aria-label="Dismiss Home Screen hint">
+            Dismiss
+          </button>
+        </aside>
+      )}
 
       <section className="workspace-stats" aria-label="Workspace summary">
         <Link to="/repertoire"><strong>{counts.pieces}</strong><span>tunes</span></Link>

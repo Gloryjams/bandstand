@@ -28,7 +28,7 @@ services:
     # The latest tag is pulled on each "up" even if cached.
     # "docker compose up -d --build" forces a source build.
     # BANDSTAND_IMAGE overrides the full image name, including the version.
-    image: ${BANDSTAND_IMAGE:-ghcr.io/gloryjams/bandstand:${BANDSTAND_VERSION:-0.1.0}}
+    image: ${BANDSTAND_IMAGE:-ghcr.io/gloryjams/bandstand:${BANDSTAND_VERSION:-0.2.0}}
     build:
       context: .
 
@@ -90,7 +90,7 @@ services:
   # director key and it cannot write to the database.
   share:
     profiles: ["share"]
-    image: ${BANDSTAND_IMAGE:-ghcr.io/gloryjams/bandstand:${BANDSTAND_VERSION:-0.1.0}}
+    image: ${BANDSTAND_IMAGE:-ghcr.io/gloryjams/bandstand:${BANDSTAND_VERSION:-0.2.0}}
     # Always the image the main server uses. Never fetched or built separately.
     pull_policy: never
     command: ["python", "-m", "server.serve_share"]
