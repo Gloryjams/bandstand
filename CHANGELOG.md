@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.0
+
+The SaltyCharts editor and Bandstand gig book are one app. Create a chord chart
+as the director, and connected bandmates get it in their books.
+
+- The editor is included in the default Docker image and source installation.
+  Opening **New chart** carries over the current band's director sign-in.
+- Chart edits sync to the band's library. Members read the charts and keep
+  their own private notes. Signing out clears the editor's inherited connection
+  while keeping local charts.
+- The Windows x64 download includes the runtime, reader, editor and four
+  original practice charts. Extract it and open **Start Bandstand**. Charts and
+  backups stay outside the app folder, so replacing the app preserves the book.
+- Wi-Fi sharing has its own Windows entrypoint. Ordinary startup stays on the
+  computer running the app.
+- [Get Bandstand](docs/GET-BANDSTAND.md) covers the Windows download, installing
+  the browser reader, and running a server on Mac, Linux or Raspberry Pi.
+- Release checks now build the Windows download and exercise a fresh book,
+  preserved data on update, guest reading and isolated sign-ins.
+
+This release includes the sign-in and database protections described below.
+Back up the whole data folder before updating an existing installation. See the
+[upgrade notes](RELEASING.md#notes-for-an-install-that-already-exists).
+
 ## 0.1.0
 
 First public release of Bandstand, a sheet music reader and gig book you run

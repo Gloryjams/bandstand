@@ -49,3 +49,7 @@ dev-data/
 # Your own additions to the Docker setup (chart editor, a data folder of your
 # choice). Docker reads it automatically and an update never replaces it.
 docker-compose.override.yml
+
+# Portable package staging and downloads.
+packaging/windows/.tmp/
+packaging/windows/build-cache/
