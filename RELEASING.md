@@ -60,13 +60,23 @@ Version numbers are three numbers, `MAJOR.MINOR.PATCH`:
    and a candidate has to be exactly what the commit produces. The release
    workflow builds without a cache for the same reason.
 
-6. **Commit, tag, push.** The tag is the version with a `v` in front.
+6. **Merge a release pull request.** Main requires a pull request and all six
+   up-to-date CI checks, including the Windows build and fresh launch. Merge the
+   version and release-note changes through that path, then wait for main's CI.
+   Start the draft release from the exact verified main commit.
+
+7. **Create the version tag from that commit.** The tag is the version with a
+   `v` in front. Publishing the draft release can create it on GitHub. To create
+   it with Git instead, first check out the exact release commit:
 
    ```
-   git commit -am "Release 0.2.0"
+   git checkout <verified-release-commit>
    git tag v0.2.0
-   git push origin main v0.2.0
+   git push origin v0.2.0
    ```
+
+   Released `v*` tags cannot be moved or deleted. Check the target before creating
+   a tag; publish a new version to correct a released one.
 
 ## What the tag does
 
@@ -228,7 +238,7 @@ reserved as described in [NOTICE](NOTICE), including the app icons. See
   checks the rest for private names and for dashes.
 - **Screenshots for the README.** The existing ones show a real library with other
   people's sheet music in it. New ones need a library made for the purpose.
-# Windows download
+## Windows download
 
 The CI job **Windows download (build and fresh launch)** builds the portable
 Windows package and verifies a fresh book, busy-port fallback, guest reader,
