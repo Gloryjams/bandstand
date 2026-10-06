@@ -21,16 +21,23 @@ function Check([bool]$OK, [string]$Label) {
 function Stop-Owned {
     # TEMP may use an 8.3 alias while CIM returns a long image path. Stop the
     # exact cmd.exe process tree we started, rather than comparing path strings.
+    $stopExit = 0
     if ($proc -and -not $proc.HasExited) {
-        & taskkill /PID $proc.Id /T /F | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'Could not stop the owned test process tree.' }
+        $killer = Start-Process -PassThru -Wait -NoNewWindow taskkill.exe `
+            -ArgumentList '/PID', "$($proc.Id)", '/T', '/F' `
+            -RedirectStandardOutput (Join-Path $work 'stop.out.txt') -RedirectStandardError (Join-Path $work 'stop.err.txt')
+        $stopExit = $killer.ExitCode
     }
     for ($i = 0; $i -lt 40; $i++) {
+        if ($proc) { $proc.Refresh() }
+        $running = $proc -and -not $proc.HasExited
         $listening = if ($lastPorts.Count) { @(Get-NetTCPConnection -State Listen -LocalPort $lastPorts -ErrorAction SilentlyContinue) } else { @() }
-        if ($listening.Count -eq 0) { return }
+        # taskkill can return an error when a short-lived helper exits during
+        # enumeration. The process and ports prove whether cleanup succeeded.
+        if (-not $running -and $listening.Count -eq 0) { return }
         Start-Sleep -Milliseconds 250
     }
-    throw 'An owned test instance did not release its ports.'
+    throw "An owned test instance did not stop and release its ports (taskkill exit $stopExit)."
 }
 function Start-Owned([switch]$DefaultFolder, [switch]$Wifi) {
     $entry = if ($Wifi) { 'Share Bandstand on Wi-Fi.bat' } else { 'Start Bandstand.bat' }
