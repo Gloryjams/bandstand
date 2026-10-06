@@ -8,8 +8,11 @@ for ($i = 0; $i -lt 360; $i++) {
         if ($response.StatusCode -eq 200) {
             Write-Host 'Bandstand is ready.'
             if ($OpenBrowser) {
-                # On this computer, localhost enables installation and offline storage.
-                $pair = "$url/app/#url=$([Uri]::EscapeDataString($url))&key=$([Uri]::EscapeDataString($key))"
+                # Ordinary start uses localhost for installation and offline storage.
+                # Wi-Fi mode uses its LAN base so sign-in QR codes reach this computer.
+                $pairBase = $env:BANDSTAND_LAUNCH_BASE
+                if (-not $pairBase) { $pairBase = $url }
+                $pair = "$pairBase/app/#url=$([Uri]::EscapeDataString($pairBase))&key=$([Uri]::EscapeDataString($key))"
                 Start-Process $pair
             }
             exit 0

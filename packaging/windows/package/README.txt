@@ -38,7 +38,9 @@ or installation on the tablet. For those, use your band's HTTPS server.
 
 INSTALL THE WEB APP
 On this computer, use Edge or Chrome's Install app option at the localhost
-address. For a band's HTTPS address, use the browser's Install option;
+address with the ordinary Start Bandstand launcher. Wi-Fi mode opens the
+network address so its sign-in codes work on your tablet. For a band's
+HTTPS address, use the browser's Install option;
 on iPhone or iPad use Safari, Share, Add to Home Screen.
 The icon opens the reader. Start Bandstand must still run when you need to
 sync or fetch charts. Save charts offline before relying on them at a gig.

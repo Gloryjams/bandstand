@@ -19,20 +19,12 @@ function Check([bool]$OK, [string]$Label) {
     Write-Host "[pass] $Label"
 }
 function Stop-Owned {
-    if ($lastPorts.Count) {
-        $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $lastPorts -ErrorAction SilentlyContinue)
-        foreach ($listener in $listeners) {
-            $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)"
-            Write-Host ("[diagnostic] " + (@{port=$listener.LocalPort; pid=$listener.OwningProcess; parent=$owner.ParentProcessId; image=$owner.ExecutablePath; expectedImage=(Join-Path $root 'runtime\python.exe')} | ConvertTo-Json -Compress))
-        }
+    # TEMP may use an 8.3 alias while CIM returns a long image path. Stop the
+    # exact cmd.exe process tree we started, rather than comparing path strings.
+    if ($proc -and -not $proc.HasExited) {
+        & taskkill /PID $proc.Id /T /F | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Could not stop the owned test process tree.' }
     }
-    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.ExecutablePath -eq (Join-Path $root 'runtime\python.exe') -or
-            ($_.Name -eq 'powershell.exe' -and $_.CommandLine -and
-             ($_.CommandLine.Contains((Join-Path $root 'app\ready.ps1')) -or
-              $_.CommandLine.Contains((Join-Path $root 'app\launcher.ps1')))) } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    if ($proc) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
     for ($i = 0; $i -lt 40; $i++) {
         $listening = if ($lastPorts.Count) { @(Get-NetTCPConnection -State Listen -LocalPort $lastPorts -ErrorAction SilentlyContinue) } else { @() }
         if ($listening.Count -eq 0) { return }
