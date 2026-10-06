@@ -72,8 +72,8 @@ try {
     $poll = Start-Process -PassThru -NoNewWindow powershell.exe -ArgumentList $readyArgs
     $guest = Start-Process -PassThru -NoNewWindow (Join-Path $root 'runtime\python.exe') `
         -ArgumentList '-m','uvicorn','server.public:app','--host',$bind,'--port',"$publicPort",'--log-level','warning','--no-access-log' `
-        -WorkingDirectory $root
-    Push-Location $root
+        -WorkingDirectory ([Management.Automation.WildcardPattern]::Escape($root))
+    Push-Location -LiteralPath $root
     try {
         & (Join-Path $root 'runtime\python.exe') -m uvicorn server.main:app --host $bind --port $port --log-level warning --no-access-log
         $serverExit = $LASTEXITCODE

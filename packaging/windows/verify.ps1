@@ -12,6 +12,7 @@ $stderr = Join-Path $work 'launch.err.txt'
 $proc = $null
 $busy = $null
 $keep = $false
+$lastPorts = @()
 
 function Check([bool]$OK, [string]$Label) {
     if (-not $OK) { throw "FAIL: $Label" }
@@ -25,29 +26,36 @@ function Stop-Owned {
               $_.CommandLine.Contains((Join-Path $root 'app\launcher.ps1')))) } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     if ($proc) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-    Start-Sleep -Milliseconds 500
+    for ($i = 0; $i -lt 40; $i++) {
+        $listening = if ($lastPorts.Count) { @(Get-NetTCPConnection -State Listen -LocalPort $lastPorts -ErrorAction SilentlyContinue) } else { @() }
+        if ($listening.Count -eq 0) { return }
+        Start-Sleep -Milliseconds 250
+    }
+    throw 'An owned test instance did not release its ports.'
 }
 function Start-Owned([switch]$DefaultFolder, [switch]$Wifi) {
     $entry = if ($Wifi) { 'Share Bandstand on Wi-Fi.bat' } else { 'Start Bandstand.bat' }
     $options = '-NoBrowser'
     if (-not $DefaultFolder) { $options += " -DataDir `"$data`"" }
     $previousAppData = $env:LOCALAPPDATA
+    Remove-Item -LiteralPath (Join-Path $data '.launch.json') -Force -ErrorAction SilentlyContinue
     try {
         if ($DefaultFolder) { $env:LOCALAPPDATA = Split-Path $data }
         $script:proc = Start-Process -PassThru cmd.exe `
             -ArgumentList '/d','/s','/c',"`"`"$(Join-Path $root $entry)`" $options`"" `
-            -WorkingDirectory $root -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            -WorkingDirectory ([Management.Automation.WildcardPattern]::Escape($root)) -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     } finally { $env:LOCALAPPDATA = $previousAppData }
     for ($i = 0; $i -lt 200; $i++) {
         if (Test-Path -LiteralPath (Join-Path $data '.launch.json')) {
-            $launch = Get-Content -LiteralPath (Join-Path $data '.launch.json') -Raw | ConvertFrom-Json
-            if (Test-Path -LiteralPath (Join-Path $data '.key')) {
-                $key = [IO.File]::ReadAllText((Join-Path $data '.key')).Trim()
-                try {
+            try {
+                $launch = Get-Content -LiteralPath (Join-Path $data '.launch.json') -Raw | ConvertFrom-Json
+                $script:lastPorts = @($launch.port, $launch.publicPort)
+                if (Test-Path -LiteralPath (Join-Path $data '.key')) {
+                    $key = [IO.File]::ReadAllText((Join-Path $data '.key')).Trim()
                     $manifest = Invoke-RestMethod "http://127.0.0.1:$($launch.port)/api/manifest" -Headers @{'X-Bandstand-Key'=$key} -TimeoutSec 1
                     return @{ launch=$launch; key=$key; manifest=$manifest }
-                } catch {}
-            }
+                }
+            } catch {}
         }
         if ($proc.HasExited) { throw 'The packaged launcher exited before the server was ready.' }
         Start-Sleep -Milliseconds 250
@@ -107,6 +115,18 @@ try {
     Check ($listeners.Count -eq 2 -and @($listeners | Where-Object LocalAddress -ne '0.0.0.0').Count -eq 0) 'Wi-Fi entrypoint listens on the network only when requested'
     Check ($wifi.key -eq $second.key) 'Wi-Fi sharing keeps the same book and sign-in'
     Stop-Owned
+    $failureData = Join-Path $work 'newer schema book'
+    New-Item -ItemType Directory $failureData | Out-Null
+    & (Join-Path $root 'runtime\python.exe') -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.executescript('CREATE TABLE schema_version(version INTEGER); INSERT INTO schema_version VALUES(999);'); c.close()" (Join-Path $failureData 'library.db')
+    Check ($LASTEXITCODE -eq 0) 'the newer-schema startup fixture is isolated'
+    $failed = Start-Process -PassThru powershell.exe `
+        -ArgumentList '-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$(Join-Path $root 'app\launcher.ps1')`"",'-NoBrowser','-DataDir',"`"$failureData`"" `
+        -WorkingDirectory $work -RedirectStandardOutput (Join-Path $work 'failure.out.txt') -RedirectStandardError (Join-Path $work 'failure.err.txt')
+    if (-not $failed.WaitForExit(15000)) { Stop-Process -Id $failed.Id -Force; throw 'The failed startup did not exit.' }
+    Check ($failed.ExitCode -ne 0) 'startup failure returns an error code to the double-click launcher'
+    $failureLaunch = Get-Content -LiteralPath (Join-Path $failureData '.launch.json') -Raw | ConvertFrom-Json
+    $failedListeners = @(Get-NetTCPConnection -State Listen -LocalPort $failureLaunch.port, $failureLaunch.publicPort -ErrorAction SilentlyContinue)
+    Check ($failedListeners.Count -eq 0) 'startup failure cleans up its guest server'
     $second = Start-Owned
     if ($KeepForBrowser) {
         $keep = $true
