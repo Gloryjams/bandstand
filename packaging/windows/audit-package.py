@@ -7,6 +7,7 @@ import re
 import sqlite3
 import sys
 import zipfile
+from contextlib import closing
 from pathlib import Path, PurePosixPath
 
 PRIVATE = [
@@ -62,7 +63,10 @@ def main() -> int:
             problems.append(f"{name}: required package content is missing")
     database = root / "seed/library.db"
     if database.is_file():
-        with sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True) as conn:
+        # The generated seed is checkpointed and closed before this audit.
+        # A normal read-only WAL connection creates -wal and -shm files after
+        # the file scan. Immutable reads leave this static package untouched.
+        with closing(sqlite3.connect(f"{database.as_uri()}?mode=ro&immutable=1", uri=True)) as conn:
             if conn.execute("SELECT COUNT(*) FROM members").fetchone()[0] != 0:
                 problems.append("seed/library.db: members found in practice book")
             if conn.execute("SELECT COUNT(*) FROM pieces WHERE deleted_at IS NULL").fetchone()[0] != 4:

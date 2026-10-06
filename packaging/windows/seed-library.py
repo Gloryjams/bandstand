@@ -19,7 +19,8 @@ try:
     }})
     conn.execute("COMMIT")
     assert conn.execute("SELECT COUNT(*) FROM members").fetchone()[0] == 0
-    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    if conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0] != 0:
+        raise RuntimeError("Practice book checkpoint was busy; refusing to package it.")
 finally:
     conn.close()
 for suffix in ("-wal", "-shm"):
