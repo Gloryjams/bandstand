@@ -10,6 +10,9 @@ no subscription, nothing stored on somebody else's computer.
 See [make a chart, share the book](docs/CHARTS-WALKTHROUGH.md) for the included
 editor and the same chart in a member's reader.
 
+See [Get Bandstand](docs/GET-BANDSTAND.md) for the Windows download, browser app,
+and installation on a phone or tablet.
+
 ## What it does
 
 **Creating charts**

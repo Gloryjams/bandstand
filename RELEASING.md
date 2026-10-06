@@ -228,3 +228,11 @@ reserved as described in [NOTICE](NOTICE), including the app icons. See
   checks the rest for private names and for dashes.
 - **Screenshots for the README.** The existing ones show a real library with other
   people's sheet music in it. New ones need a library made for the purpose.
+# Windows download
+
+The CI job **Windows download (build and fresh launch)** builds the portable
+Windows package and verifies a fresh book, busy-port fallback, guest reader,
+preserved data after updating, and a separate second book. Download its
+`windows-download` artifact from the exact release target revision and attach
+the ZIP and SHA-256 file to the draft release before publication. Do not attach
+an artifact from a different revision. See [Windows packaging](packaging/windows/README.md).
