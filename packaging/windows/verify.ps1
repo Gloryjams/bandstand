@@ -19,6 +19,13 @@ function Check([bool]$OK, [string]$Label) {
     Write-Host "[pass] $Label"
 }
 function Stop-Owned {
+    if ($lastPorts.Count) {
+        $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $lastPorts -ErrorAction SilentlyContinue)
+        foreach ($listener in $listeners) {
+            $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)"
+            Write-Host ("[diagnostic] " + (@{port=$listener.LocalPort; pid=$listener.OwningProcess; parent=$owner.ParentProcessId; image=$owner.ExecutablePath; expectedImage=(Join-Path $root 'runtime\python.exe')} | ConvertTo-Json -Compress))
+        }
+    }
     Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object { $_.ExecutablePath -eq (Join-Path $root 'runtime\python.exe') -or
             ($_.Name -eq 'powershell.exe' -and $_.CommandLine -and
