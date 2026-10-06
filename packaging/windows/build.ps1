@@ -53,6 +53,20 @@ try {
     Copy-Item (Join-Path $PSScriptRoot 'package\*') $stage -Recurse
     $runtime = Join-Path $stage 'runtime'
     Expand-Archive -LiteralPath $embed -DestinationPath $runtime
+    # Python's bundle still has SQLite 3.50.4. Use the official patched DLL.
+    $sqliteInfo = $runtimeInfo.sqlite
+    $sqliteZip = Join-Path $cache "sqlite-$($sqliteInfo.version)-win-x64.zip"
+    if (-not (Test-Path $sqliteZip)) {
+        Invoke-WebRequest -UseBasicParsing $sqliteInfo.url -OutFile $sqliteZip
+    }
+    if ((Get-FileHash -Algorithm SHA256 $sqliteZip).Hash.ToLowerInvariant() -ne $sqliteInfo.sha256) {
+        throw 'SQLite checksum mismatch. Remove the cached download and try again.'
+    }
+    $sqliteStage = Join-Path $scratch 'sqlite'
+    Expand-Archive -LiteralPath $sqliteZip -DestinationPath $sqliteStage
+    $sqliteDll = @(Get-ChildItem -LiteralPath $sqliteStage -Recurse -File -Filter 'sqlite3.dll')
+    if ($sqliteDll.Count -ne 1) { throw 'The SQLite archive must contain exactly one DLL.' }
+    Copy-Item -LiteralPath $sqliteDll[0].FullName -Destination (Join-Path $runtime 'sqlite3.dll') -Force
     $pth = Get-ChildItem $runtime -Filter 'python*._pth' | Select-Object -First 1
     $text = [IO.File]::ReadAllText($pth.FullName).Replace('#import site', "..\app`r`nLib\site-packages`r`nimport site")
     [IO.File]::WriteAllText($pth.FullName, $text, [Text.Encoding]::ASCII)
@@ -82,10 +96,13 @@ try {
     New-Item -ItemType Directory -Force (Join-Path $stage 'source') | Out-Null
     & git archive --format=zip "--output=$(Join-Path $stage 'source\Bandstand-source.zip')" HEAD
     Check-Exit 'Cannot include the corresponding source.'
-    @{ version=$version; revision=$revision; python=$runtimeInfo.version; platform='windows-x64' } |
+    @{ version=$version; revision=$revision; python=$runtimeInfo.version; sqlite=$sqliteInfo.version; platform='windows-x64' } |
         ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $stage 'VERSION.json')
 
     $python = Join-Path $runtime 'python.exe'
+    $loadedSqlite = (& $python -c "import sqlite3; print(sqlite3.sqlite_version)").Trim()
+    Check-Exit 'The embedded Python could not load SQLite.'
+    if ($loadedSqlite -ne $sqliteInfo.version) { throw 'The embedded Python did not load the pinned SQLite DLL.' }
     & $python (Join-Path $PSScriptRoot 'make-demo-charts.py') (Join-Path $stage 'seed\library')
     Check-Exit 'Practice chart generation failed.'
     $previousData = $env:BANDSTAND_DATA_DIR
