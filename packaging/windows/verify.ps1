@@ -73,6 +73,9 @@ try {
     # The builder separately checks that its temporary seed key was removed.
     & (Join-Path $root 'runtime\python.exe') (Join-Path $PSScriptRoot 'audit-package.py') $root
     Check ($LASTEXITCODE -eq 0) 'the finished ZIP passes the full package audit'
+    $runtimeInfo = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'python-runtime.json') -Raw | ConvertFrom-Json
+    $loadedSqlite = (& (Join-Path $root 'runtime\python.exe') -c "import sqlite3; print(sqlite3.sqlite_version)").Trim()
+    Check ($LASTEXITCODE -eq 0 -and $loadedSqlite -eq $runtimeInfo.sqlite.version) 'the packaged database engine matches the patched SQLite pin'
     try { $busy = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any, 7800); $busy.Start() } catch { $busy = $null }
     $first = Start-Owned -DefaultFolder
     Check (Test-Path -LiteralPath (Join-Path $data 'library.db')) 'double-click entrypoint uses the default data folder'

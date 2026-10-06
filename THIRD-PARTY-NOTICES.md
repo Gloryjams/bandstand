@@ -59,6 +59,14 @@ other platforms are not included in the browser bundles.
 | `yargs-parser` | 18.1.3 | ISC | client |
 | `zustand` | 5.0.15 | MIT | charts, client |
 
+## Windows SQLite runtime
+
+The Windows package includes an unmodified SQLite DLL from the
+[official SQLite downloads](https://www.sqlite.org/download.html). SQLite's
+deliverable code is dedicated to the public domain; see its
+[copyright statement](https://www.sqlite.org/copyright.html). The exact version,
+download URL and checksums are recorded in `packaging/windows/python-runtime.json`.
+
 ## Fonts
 
 Space Grotesk and Baloo 2 are distributed unmodified under the SIL Open Font

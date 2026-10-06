@@ -22,7 +22,12 @@ Local builds always build both web bundles from the current source.
 Python's Windows runtime is pinned by version and the SHA-256 checksum from its
 [official release page](https://www.python.org/downloads/release/python-31316/).
 All Python packages are pinned and hash-checked in `requirements-windows.lock`.
-To refresh that lock from the server dependencies, use:
+The Windows SQLite DLL is separately pinned and hash-checked in
+`python-runtime.json`. It comes from the [official SQLite downloads](https://www.sqlite.org/download.html)
+and replaces Python's older bundled engine with a version containing the
+[WAL-reset correction](https://www.sqlite.org/wal.html). The builder and finished
+ZIP checks confirm the version actually loaded by the embedded Python.
+To refresh the Python package lock from the server dependencies, use:
 
 ```sh
 uv pip compile --generate-hashes --python-version 3.13 --python-platform windows \

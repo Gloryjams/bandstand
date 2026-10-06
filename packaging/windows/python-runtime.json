@@ -2,5 +2,12 @@
   "version": "3.13.16",
   "url": "https://www.python.org/ftp/python/3.13.16/python-3.13.16-embed-amd64.zip",
   "sha256": "97dae5274cc54867065e8d5a3226e48c35017ed332a0fdb0e27d5b5821961297",
-  "source": "https://www.python.org/downloads/release/python-31316/"
+  "source": "https://www.python.org/downloads/release/python-31316/",
+  "sqlite": {
+    "version": "3.53.4",
+    "url": "https://www.sqlite.org/2026/sqlite-dll-win-x64-3530400.zip",
+    "sha256": "8b959b7eff4a81f6a62fc3468f9273e5cfe78d4a927e62215aed231b654fb104",
+    "sha3_256": "deddee963c810d1eeac3ce5e15c7c41da21a1c54d7a39cf54fbf577d2f50de3a",
+    "source": "https://www.sqlite.org/download.html"
+  }
 }
